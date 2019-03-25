@@ -1,0 +1,3 @@
+[submodule "deps/LiveGraph"]
+	path = deps/LiveGraph
+	url = git@github.com:coolerzxw/LiveGraph.git
