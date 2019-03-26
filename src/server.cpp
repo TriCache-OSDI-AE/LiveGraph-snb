@@ -51,7 +51,7 @@ int main(int argc, char** argv)
         for(std::string line;std::getline(ifs_person, line);) all_persons.push_back(line);
         for(std::string line;std::getline(ifs_emails, line);) all_emails.push_back(line);
         for(std::string line;std::getline(ifs_speaks, line);) all_speaks.push_back(line);
-        assert(all_persons[0] == "id|firstName|lastName|gender|birthday|creationDate|locationIP|browserUsed");
+        assert(all_persons[0] == "id|firstName|lastName|gender|birthday|creationDate|locationIP|browserUsed|place");
         assert(all_emails[0] == "Person.id|email");
         assert(all_speaks[0] == "Person.id|language");
 
@@ -77,10 +77,11 @@ int main(int argc, char** argv)
 
             auto person_buf = snb::PersonSchema::createPerson(std::stoull(person_v[0]), person_v[1], person_v[2], person_v[3],  
                     std::chrono::duration_cast<std::chrono::hours>(birthday.time_since_epoch()).count(), emails_v, speaks_v, person_v[7], person_v[6],
-                    std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count());
+                    std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count(), 
+                    person_v.size()>8?std::stoull(person_v[8]):(uint64_t)-1);
 
-//            const snb::PersonSchema::Person *person = (const snb::PersonSchema::Person*)person_buf.data();
-//            std::cout << person->id << "|" << std::string(person->firstName(), person->firstNameLen()) << "|" 
+            const snb::PersonSchema::Person *person = (const snb::PersonSchema::Person*)person_buf.data();
+//            std::cout << person->id << "|" << person->place << "|" << std::string(person->firstName(), person->firstNameLen()) << "|" 
 //                << std::string(person->lastName(), person->lastNameLen()) << "|" 
 //                << std::string(person->gender(), person->genderLen()) << "|" 
 //                << std::string(person->browserUsed(), person->browserUsedLen()) << "|" 
@@ -104,7 +105,7 @@ int main(int argc, char** argv)
 
         std::vector<std::string> all_places;
         for(std::string line;std::getline(ifs_place, line);) all_places.push_back(line);
-        assert(all_places[0] == "id|name|url|type");
+        assert(all_places[0] == "id|name|url|type|isPartOf");
         for(size_t i=1;i<all_places.size();i++)
         {
             std::vector<std::string> place_v = split(all_places[i], csv_split);
@@ -125,10 +126,10 @@ int main(int argc, char** argv)
             {
                 assert(false);
             }
-            auto place_buf = snb::PlaceSchema::createPlace(std::stoull(place_v[0]), place_v[1], place_v[2], type);
-//            const snb::PlaceSchema::Place *place = (const snb::PlaceSchema::Place*)place_buf.data();
-//            std::cout << place->id << "|" << std::string(place->name(), place->nameLen()) << "|" 
-//                << std::string(place->url(), place->urlLen()) << "|"  << (int)place->type << std::endl;
+            auto place_buf = snb::PlaceSchema::createPlace(std::stoull(place_v[0]), place_v[1], place_v[2], type, place_v.size()>4?std::stoull(place_v[4]):(uint64_t)-1);
+            const snb::PlaceSchema::Place *place = (const snb::PlaceSchema::Place*)place_buf.data();
+            std::cout << place->id << "|" << std::string(place->name(), place->nameLen()) << "|" 
+                << std::string(place->url(), place->urlLen()) << "|"  << (int)place->type << "|" << place->isPartOf << std::endl;
 
         }
     }

@@ -34,6 +34,7 @@ namespace snb
         struct Person
         {
             uint64_t id;
+            uint64_t place;
             uint64_t creationDate;
             uint32_t birthday;
             uint16_t lastName_offset;
@@ -103,7 +104,7 @@ namespace snb
             }
         } __attribute__((packed));
 
-        Buffer static createPerson(uint64_t id, std::string firstName, std::string lastName, std::string gender, uint32_t birthday, std::vector<std::string> emails, std::vector<std::string> speaks, std::string browserUsed, std::string locationIP, uint64_t creationDate)
+        Buffer static createPerson(uint64_t id, std::string firstName, std::string lastName, std::string gender, uint32_t birthday, std::vector<std::string> emails, std::vector<std::string> speaks, std::string browserUsed, std::string locationIP, uint64_t creationDate, uint64_t place)
         {
             size_t size = sizeof(Person);
             size += firstName.length();
@@ -117,6 +118,7 @@ namespace snb
             Buffer buf(size);
             Person *person = (Person *)buf.data();
             person->id = id;
+            person->place = place;
             person->creationDate = creationDate;
             person->birthday = birthday;
 
@@ -164,6 +166,7 @@ namespace snb
         struct Place
         {
             uint64_t id;
+            uint64_t isPartOf;
             uint16_t url_offset;
             uint16_t length;
             enum class Type : char
@@ -192,7 +195,7 @@ namespace snb
             }
         } __attribute__((packed));
 
-        Buffer static createPlace(uint64_t id, std::string name, std::string url, Place::Type type)
+        Buffer static createPlace(uint64_t id, std::string name, std::string url, Place::Type type, uint64_t isPartOf)
         {
             size_t size = sizeof(Place);
             size += name.length();
@@ -201,6 +204,7 @@ namespace snb
             Buffer buf(size);
             Place *place = (Place *)buf.data();
             place->id = id;
+            place->isPartOf = isPartOf;
             place->type = type;
 
             uint16_t offset = 0;
