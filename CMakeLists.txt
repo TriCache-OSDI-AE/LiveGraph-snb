@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 project(LiveGraph-snb CXX)
 
-set (CMAKE_CXX_STANDARD 14)
+set (CMAKE_CXX_STANDARD 11)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 find_package(Threads REQUIRED)
@@ -10,6 +10,10 @@ if (OPENMP_FOUND)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
     set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+find_package(TBB REQUIRED)
+include_directories(${TBB_INCLUDE_DIRS})
 
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
@@ -31,4 +35,4 @@ include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
 add_executable(snb_server src/server.cpp)
 
-target_link_libraries(snb_server Threads::Threads)
+target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES})
