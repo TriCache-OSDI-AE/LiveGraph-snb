@@ -8,10 +8,28 @@
 namespace snb
 {
     typedef std::vector<char> Buffer;
-    class PersonSchema
+    class Schema
     {
     private:
         tbb::concurrent_hash_map<uint64_t, uint64_t> vindex;
+    public:
+        void insertId(uint64_t id, uint64_t vid)
+        {   
+            tbb::concurrent_hash_map<uint64_t, uint64_t>::accessor a;
+            vindex.insert(a, id);
+            a->second = vid;
+        }
+
+        uint64_t findId(uint64_t id)
+        {
+            tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
+            bool exist = vindex.find(a, id);
+            if(!exist)return (uint64_t)-1;
+            return a->second;
+        }
+    };
+    class PersonSchema : public Schema
+    {
     public:
         struct Person
         {
@@ -138,19 +156,63 @@ namespace snb
             return buf;
         }
 
-        void insertPersonId(uint64_t id, uint64_t vid)
-        {   
-            tbb::concurrent_hash_map<uint64_t, uint64_t>::accessor a;
-            vindex.insert(a, id);
-            a->second = vid;
+    };
+
+    class PlaceSchema : public Schema
+    {
+    public:
+        struct Place
+        {
+            uint64_t id;
+            uint16_t url_offset;
+            uint16_t length;
+            enum class Type : char
+            {
+                City,
+                Country,
+                Continent
+            } type;
+            char data[0];
+
+            const char* name() const
+            {
+                return data;
+            }
+            uint16_t nameLen() const
+            {
+                return url_offset;
+            }
+            const char* url() const
+            {
+                return data+url_offset;
+            }
+            uint16_t urlLen() const
+            {
+                return length-url_offset;
+            }
+        } __attribute__((packed));
+
+        Buffer static createPlace(uint64_t id, std::string name, std::string url, Place::Type type)
+        {
+            size_t size = sizeof(Place);
+            size += name.length();
+            size += url.length();
+
+            Buffer buf(size);
+            Place *place = (Place *)buf.data();
+            place->id = id;
+            place->type = type;
+
+            uint16_t offset = 0;
+            memcpy(place->data+offset, name.c_str(), name.length());
+            offset += name.length(); place->url_offset = offset;
+
+            memcpy(place->data+offset, url.c_str(), url.length());
+            offset += url.length(); place->length = offset;
+
+            assert(place->length + sizeof(Place) == size);
+            return buf;
         }
 
-        uint64_t findPersonId(uint64_t id)
-        {
-            tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
-            bool exist = vindex.find(a, id);
-            if(!exist)return (uint64_t)-1;
-            return a->second;
-        }
     };
 }

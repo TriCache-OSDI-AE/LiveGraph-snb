@@ -1,4 +1,3 @@
-#include <regex>
 #include <ctime>
 #include <chrono>
 #include <sstream>
@@ -99,4 +98,38 @@ int main(int argc, char** argv)
         }
     }
 
+    snb::PlaceSchema placeSchema;
+    {
+        std::ifstream ifs_place(path+"/place_0_0.csv");
+
+        std::vector<std::string> all_places;
+        for(std::string line;std::getline(ifs_place, line);) all_places.push_back(line);
+        assert(all_places[0] == "id|name|url|type");
+        for(size_t i=1;i<all_places.size();i++)
+        {
+            std::vector<std::string> place_v = split(all_places[i], csv_split);
+            snb::PlaceSchema::Place::Type type;
+            if(place_v[3] == "city")
+            {
+                type = snb::PlaceSchema::Place::Type::City;
+            }
+            else if(place_v[3] == "country")
+            {
+                type = snb::PlaceSchema::Place::Type::Country;
+            }
+            else if(place_v[3] == "continent")
+            {
+                type = snb::PlaceSchema::Place::Type::Continent;
+            }
+            else
+            {
+                assert(false);
+            }
+            auto place_buf = snb::PlaceSchema::createPlace(std::stoull(place_v[0]), place_v[1], place_v[2], type);
+//            const snb::PlaceSchema::Place *place = (const snb::PlaceSchema::Place*)place_buf.data();
+//            std::cout << place->id << "|" << std::string(place->name(), place->nameLen()) << "|" 
+//                << std::string(place->url(), place->urlLen()) << "|"  << (int)place->type << std::endl;
+
+        }
+    }
 }
