@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 project(LiveGraph-snb CXX)
 
-set (CMAKE_CXX_STANDARD 11)
+set (CMAKE_CXX_STANDARD 14)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 find_package(Threads REQUIRED)
@@ -33,6 +33,6 @@ endif(NOT CMAKE_BUILD_TYPE)
 set(PROJECT_DEPS_DIR ${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
-add_executable(snb_server src/server.cpp src/import.cpp)
+add_executable(snb_server src/server.cpp)
 
 target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES})

@@ -24,7 +24,7 @@ namespace snb
         {
             tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
             bool exist = vindex.find(a, id);
-            if(!exist)return (uint64_t)-1;
+            assert(exist);
             return a->second;
         }
     };
