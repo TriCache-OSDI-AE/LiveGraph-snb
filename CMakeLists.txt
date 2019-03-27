@@ -33,6 +33,6 @@ endif(NOT CMAKE_BUILD_TYPE)
 set(PROJECT_DEPS_DIR ${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
-add_executable(snb_server src/server.cpp)
+add_executable(snb_server src/server.cpp src/import.cpp)
 
 target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES})

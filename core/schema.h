@@ -219,4 +219,314 @@ namespace snb
         }
 
     };
+
+    class OrgSchema : public Schema
+    {
+    public:
+        struct Org
+        {
+            uint64_t id;
+            uint64_t place;
+            uint16_t url_offset;
+            uint16_t length;
+            enum class Type : char
+            {
+                Company,
+                University
+            } type;
+            char data[0];
+
+            const char* name() const
+            {
+                return data;
+            }
+            uint16_t nameLen() const
+            {
+                return url_offset;
+            }
+            const char* url() const
+            {
+                return data+url_offset;
+            }
+            uint16_t urlLen() const
+            {
+                return length-url_offset;
+            }
+        } __attribute__((packed));
+
+        Buffer static createOrg(uint64_t id, Org::Type type, std::string name, std::string url, uint64_t place)
+        {
+            size_t size = sizeof(Org);
+            size += name.length();
+            size += url.length();
+
+            Buffer buf(size);
+            Org *org = (Org *)buf.data();
+            org->id = id;
+            org->place = place;
+            org->type = type;
+
+            uint16_t offset = 0;
+            memcpy(org->data+offset, name.c_str(), name.length());
+            offset += name.length(); org->url_offset = offset;
+
+            memcpy(org->data+offset, url.c_str(), url.length());
+            offset += url.length(); org->length = offset;
+
+            assert(org->length + sizeof(Org) == size);
+            return buf;
+        }
+    };
+
+    class MessageSchema : public Schema
+    {
+    public:
+        struct Message
+        {
+            uint64_t id;
+            uint64_t creationDate;
+            uint64_t creator;
+            uint64_t forumid;
+            uint64_t place;
+            uint64_t replyOfPost;
+            uint64_t replyOfComment;
+            uint16_t locationIP_offset;
+            uint16_t browserUsed_offset;
+            uint16_t language_offset;
+            uint16_t content_offset;
+            uint16_t length;
+            enum class Type : char
+            {
+                Comment,
+                Post
+            } type;
+            char data[0];
+
+            const char* imageFile() const
+            {
+                return data;
+            }
+            uint16_t imageFileLen() const
+            {
+                return locationIP_offset;
+            }
+            const char* locationIP() const
+            {
+                return data+locationIP_offset;
+            }
+            uint16_t locationIPLen() const
+            {
+                return browserUsed_offset-locationIP_offset;
+            }
+            const char* browserUsed() const
+            {
+                return data+browserUsed_offset;
+            }
+            uint16_t browserUsedLen() const
+            {
+                return language_offset-browserUsed_offset;
+            }
+            const char* language() const
+            {
+                return data+language_offset;
+            }
+            uint16_t languageLen() const
+            {
+                return content_offset-language_offset;
+            }
+            const char* content() const
+            {
+                return data+content_offset;
+            }
+            uint16_t contentLen() const
+            {
+                return length-content_offset;
+            }
+        } __attribute__((packed));
+
+        Buffer static createMessage(uint64_t id, std::string imageFile, uint64_t creationDate, std::string locationIP, std::string browserUsed, std::string language, std::string content, uint64_t creator, uint64_t forumid, uint64_t place, uint64_t replyOfPost, uint64_t replyOfComment, Message::Type type)
+        {
+            size_t size = sizeof(Message);
+            size += imageFile.length();
+            size += locationIP.length();
+            size += browserUsed.length();
+            size += language.length();
+            size += content.length();
+
+            Buffer buf(size);
+            Message *message = (Message *)buf.data();
+            message->id = id;
+            message->creationDate = creationDate;
+            message->creator = creator;
+            message->forumid = forumid;
+            message->place = place;
+            message->replyOfPost = replyOfPost;
+            message->replyOfComment = replyOfComment;
+            message->type = type;
+
+            uint16_t offset = 0;
+            memcpy(message->data+offset, imageFile.c_str(), imageFile.length());
+            offset += imageFile.length(); message->locationIP_offset = offset;
+
+            memcpy(message->data+offset, locationIP.c_str(), locationIP.length());
+            offset += locationIP.length(); message->browserUsed_offset = offset;
+
+            memcpy(message->data+offset, browserUsed.c_str(), browserUsed.length());
+            offset += browserUsed.length(); message->language_offset = offset;
+
+            memcpy(message->data+offset, language.c_str(), language.length());
+            offset += language.length(); message->content_offset = offset;
+
+            memcpy(message->data+offset, content.c_str(), content.length());
+            offset += content.length(); message->length = offset;
+
+            assert(message->length + sizeof(Message) == size);
+            return buf;
+        }
+    };
+
+    class TagSchema : public Schema
+    {
+    public:
+        struct Tag
+        {
+            uint64_t id;
+            uint64_t hasType;
+            uint16_t url_offset;
+            uint16_t length;
+            char data[0];
+
+            const char* name() const
+            {
+                return data;
+            }
+            uint16_t nameLen() const
+            {
+                return url_offset;
+            }
+            const char* url() const
+            {
+                return data+url_offset;
+            }
+            uint16_t urlLen() const
+            {
+                return length-url_offset;
+            }
+        } __attribute__((packed));
+
+        Buffer static createTag(uint64_t id, std::string name, std::string url, uint64_t hasType)
+        {
+            size_t size = sizeof(Tag);
+            size += name.length();
+            size += url.length();
+
+            Buffer buf(size);
+            Tag *tag = (Tag *)buf.data();
+            tag->id = id;
+            tag->hasType = hasType;
+
+            uint16_t offset = 0;
+            memcpy(tag->data+offset, name.c_str(), name.length());
+            offset += name.length(); tag->url_offset = offset;
+
+            memcpy(tag->data+offset, url.c_str(), url.length());
+            offset += url.length(); tag->length = offset;
+
+            assert(tag->length + sizeof(Tag) == size);
+            return buf;
+        }
+    };
+
+    class TagClassSchema : public Schema
+    {
+    public:
+        struct TagClass
+        {
+            uint64_t id;
+            uint64_t isSubclassOf;
+            uint16_t url_offset;
+            uint16_t length;
+            char data[0];
+
+            const char* name() const
+            {
+                return data;
+            }
+            uint16_t nameLen() const
+            {
+                return url_offset;
+            }
+            const char* url() const
+            {
+                return data+url_offset;
+            }
+            uint16_t urlLen() const
+            {
+                return length-url_offset;
+            }
+        } __attribute__((packed));
+
+        Buffer static createTagClass(uint64_t id, std::string name, std::string url, uint64_t isSubclassOf)
+        {
+            size_t size = sizeof(TagClass);
+            size += name.length();
+            size += url.length();
+
+            Buffer buf(size);
+            TagClass *tagclass = (TagClass *)buf.data();
+            tagclass->id = id;
+            tagclass->isSubclassOf = isSubclassOf;
+
+            uint16_t offset = 0;
+            memcpy(tagclass->data+offset, name.c_str(), name.length());
+            offset += name.length(); tagclass->url_offset = offset;
+
+            memcpy(tagclass->data+offset, url.c_str(), url.length());
+            offset += url.length(); tagclass->length = offset;
+
+            assert(tagclass->length + sizeof(TagClass) == size);
+            return buf;
+        }
+    };
+
+    class ForumSchema : public Schema
+    {
+    public:
+        struct Forum
+        {
+            uint64_t id;
+            uint64_t creationDate;
+            uint64_t moderator;
+            uint16_t length;
+            char data[0];
+
+            const char* title() const
+            {
+                return data;
+            }
+            uint16_t titleLen() const
+            {
+                return length;
+            }
+        } __attribute__((packed));
+
+        Buffer static createForum(uint64_t id, std::string title, uint64_t creationDate, uint64_t moderator)
+        {
+            size_t size = sizeof(Forum);
+            size += title.length();
+
+            Buffer buf(size);
+            Forum *forum = (Forum *)buf.data();
+            forum->id = id;
+            forum->creationDate = creationDate;
+            forum->moderator = moderator;
+
+            uint16_t offset = 0;
+            memcpy(forum->data+offset, title.c_str(), title.length());
+            offset += title.length(); forum->length = offset;
+
+            assert(forum->length + sizeof(Forum) == size);
+            return buf;
+        }
+    };
 }
