@@ -44,9 +44,25 @@ namespace snb
     const static char csv_split('|');
     const static char zero_split('\000');
 
+    void prepareVIndex(snb::Schema &schema, std::string path)
+    {
+        std::ifstream ifs(path);
+        bool first = true;
+        for(std::string line;std::getline(ifs, line);first = false)
+        {
+            if(first)
+            {
+                assert(line.substr(0, 3) == "id|");
+                continue;
+            }
+            auto v = split(path, csv_split);
+        }
+
+    }
+
     void importPerson(snb::PersonSchema &personSchema, std::string path)
     {
-        std::ifstream ifs_person(path+"/person_0_0.csv");
+        std::ifstream ifs_person(path+personPathSuffix);
         std::ifstream ifs_emails(path+"/person_email_emailaddress_0_0.csv");
         std::ifstream ifs_speaks(path+"/person_speaks_language_0_0.csv");
     
@@ -105,7 +121,7 @@ namespace snb
     
     void importPlace(snb::PlaceSchema &placeSchema, std::string path)
     {
-        std::ifstream ifs_place(path+"/place_0_0.csv");
+        std::ifstream ifs_place(path+placePathSuffix);
     
         std::vector<std::string> all_places;
         for(std::string line;std::getline(ifs_place, line);) all_places.push_back(line);
@@ -140,7 +156,7 @@ namespace snb
     
     void importOrg(snb::OrgSchema &orgSchema, std::string path)
     {
-        std::ifstream ifs_org(path+"/organisation_0_0.csv");
+        std::ifstream ifs_org(path+orgPathSuffix);
     
         std::vector<std::string> all_orgs;
         for(std::string line;std::getline(ifs_org, line);) all_orgs.push_back(line);
@@ -171,7 +187,7 @@ namespace snb
     
     void importPost(snb::MessageSchema &postSchema, std::string path)
     {
-        std::ifstream ifs_message(path+"/post_0_0.csv");
+        std::ifstream ifs_message(path+postPathSuffix);
     
         std::vector<std::string> all_messages;
         for(std::string line;std::getline(ifs_message, line);) all_messages.push_back(line);
@@ -210,7 +226,7 @@ namespace snb
     
     void importComment(snb::MessageSchema &commentSchema, std::string path)
     {
-        std::ifstream ifs_message(path+"/comment_0_0.csv");
+        std::ifstream ifs_message(path+commentPathSuffix);
     
         std::vector<std::string> all_messages;
         for(std::string line;std::getline(ifs_message, line);) all_messages.push_back(line);
@@ -249,7 +265,7 @@ namespace snb
 
     void importTag(snb::TagSchema &tagSchema, std::string path)
     {
-        std::ifstream ifs_tag(path+"/tag_0_0.csv");
+        std::ifstream ifs_tag(path+tagPathSuffix);
     
         std::vector<std::string> all_tags;
         for(std::string line;std::getline(ifs_tag, line);) all_tags.push_back(line);
@@ -267,7 +283,7 @@ namespace snb
 
     void importTagClass(snb::TagClassSchema &tagclassSchema, std::string path)
     {
-        std::ifstream ifs_tagclass(path+"/tagclass_0_0.csv");
+        std::ifstream ifs_tagclass(path+tagclassPathSuffix);
     
         std::vector<std::string> all_tagclasss;
         for(std::string line;std::getline(ifs_tagclass, line);) all_tagclasss.push_back(line);
@@ -285,7 +301,7 @@ namespace snb
 
     void importForum(snb::ForumSchema &forumSchema, std::string path)
     {
-        std::ifstream ifs_forum(path+"/forum_0_0.csv");
+        std::ifstream ifs_forum(path+forumPathSuffix);
     
         std::vector<std::string> all_forums;
         for(std::string line;std::getline(ifs_forum, line);) all_forums.push_back(line);
@@ -298,12 +314,13 @@ namespace snb
                     std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count(),
                     std::stoull(forum_v[3]));
             const snb::ForumSchema::Forum *forum = (const snb::ForumSchema::Forum*)forum_buf.data();
-            std::cout << forum->id << "|" << std::string(forum->title(), forum->titleLen()) << "|" 
-                << forum->moderator << "|";
-            std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::time_point(std::chrono::milliseconds(forum->creationDate)));
-            std::cout << std::ctime(&t);
+//            std::cout << forum->id << "|" << std::string(forum->title(), forum->titleLen()) << "|" 
+//                << forum->moderator << "|";
+//            std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::time_point(std::chrono::milliseconds(forum->creationDate)));
+//            std::cout << std::ctime(&t);
     
         }
     }
+
 }
 
