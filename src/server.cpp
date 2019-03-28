@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <functional>
 #include <tbb/parallel_sort.h>
 #include "core/schema.h" 
 #include "core/import.h"
@@ -111,6 +112,7 @@ void importPerson(snb::PersonSchema &personSchema, std::string path, snb::PlaceS
                 place_vid);
 
         loader.PutVertex(person_vid, livegraph::Bytes(person_buf.data(), person_buf.size()));
+        loader.PutEdge(place_vid, (EdgeType)snb::EdgeSchema::Place2Person, person_vid, livegraph::Bytes());
 
 //        const snb::PersonSchema::Person *person = (const snb::PersonSchema::Person*)person_buf.data();
 //        std::cout << person->id << "|" << person->place << "|" << std::string(person->firstName(), person->firstNameLen()) << "|" 
@@ -169,6 +171,10 @@ void importPlace(snb::PlaceSchema &placeSchema, std::string path)
         auto place_buf = snb::PlaceSchema::createPlace(std::stoull(place_v[0]), place_v[1], place_v[2], type, isPartOf_vid);
 
         loader.PutVertex(place_vid, livegraph::Bytes(place_buf.data(), place_buf.size()));
+        if(isPartOf_vid != (uint64_t)-1)
+        {
+            loader.PutEdge(isPartOf_vid, (EdgeType)snb::EdgeSchema::Place2Place_down, place_vid, livegraph::Bytes());
+        }
 
 //        const snb::PlaceSchema::Place *place = (const snb::PlaceSchema::Place*)place_buf.data();
 //        std::cout << place->id << "|" << std::string(place->name(), place->nameLen()) << "|" 
@@ -210,6 +216,7 @@ void importOrg(snb::OrgSchema &orgSchema, std::string path, snb::PlaceSchema &pl
         auto org_buf = snb::OrgSchema::createOrg(std::stoull(org_v[0]), type, org_v[2], org_v[3], place_vid);
 
         loader.PutVertex(org_vid, livegraph::Bytes(org_buf.data(), org_buf.size()));
+        loader.PutEdge(place_vid, (EdgeType)snb::EdgeSchema::Place2Org, org_vid, livegraph::Bytes());
 
 //        const snb::OrgSchema::Org *org = (const snb::OrgSchema::Org*)org_buf.data();
 //        std::cout << org->id << "|" << std::string(org->name(), org->nameLen()) << "|" 
@@ -231,6 +238,7 @@ void importPost(snb::MessageSchema &postSchema, std::string path, snb::PersonSch
     {
         message_vs.emplace_back(split(all_messages[i], csv_split));
     }
+    all_messages.clear();
     tbb::parallel_sort(message_vs.begin(), message_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
         return a[2] < b[2];
     });
@@ -247,13 +255,16 @@ void importPost(snb::MessageSchema &postSchema, std::string path, snb::PersonSch
         uint64_t creator_vid = personSchema.findId(std::stoull(message_v[8]));
         uint64_t forumid_vid = forumSchema.findId(std::stoull(message_v[9]));
         uint64_t place_vid = placeSchema.findId(std::stoull(message_v[10]));
+        uint64_t creationDateInt = std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count();
 
         auto message_buf = snb::MessageSchema::createMessage(std::stoull(message_v[0]), message_v[1], 
-                std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count(),
+                creationDateInt,
                 message_v[3], message_v[4], message_v[5], message_v[6], 
                 creator_vid, forumid_vid, place_vid, (uint64_t)-1, (uint64_t)-1, type);
 
         loader.PutVertex(message_vid, livegraph::Bytes(message_buf.data(), message_buf.size()));
+        loader.PutEdge(forumid_vid, (EdgeType)snb::EdgeSchema::Forum2Post, message_vid, livegraph::Bytes());
+        loader.PutEdge(creator_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator, message_vid, livegraph::Bytes((char*)&creationDateInt, sizeof(creationDateInt)));
 
 //        const snb::MessageSchema::Message *message = (const snb::MessageSchema::Message*)message_buf.data();
 //        std::cout << message->id << "|" << std::string(message->imageFile(), message->imageFileLen()) << "|" 
@@ -282,6 +293,7 @@ void importComment(snb::MessageSchema &commentSchema, std::string path, snb::Per
     {
         message_vs.emplace_back(split(all_messages[i], csv_split));
     }
+    all_messages.clear();
     tbb::parallel_sort(message_vs.begin(), message_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
         return a[1] < b[1];
     });
@@ -299,13 +311,23 @@ void importComment(snb::MessageSchema &commentSchema, std::string path, snb::Per
         uint64_t place_vid = placeSchema.findId(std::stoull(message_v[7]));
         uint64_t replyOfPost_vid = !message_v[8].empty()?postSchema.findId(std::stoull(message_v[8])):(uint64_t)-1;
         uint64_t replyOfComment_vid = message_v.size()>9?commentSchema.findId(std::stoull(message_v[9])):(uint64_t)-1;
+        uint64_t creationDateInt = std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count();
 
         auto message_buf = snb::MessageSchema::createMessage(std::stoull(message_v[0]), std::string(), 
-                std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count(),
+                creationDateInt,
                 message_v[2], message_v[3], std::string(), message_v[4], 
                 creator_vid, (uint64_t)-1, place_vid, replyOfPost_vid, replyOfComment_vid, type);
 
         loader.PutVertex(message_vid, livegraph::Bytes(message_buf.data(), message_buf.size()));
+        loader.PutEdge(creator_vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator, message_vid, livegraph::Bytes((char*)&creationDateInt, sizeof(creationDateInt)));
+        if(replyOfPost_vid != (uint64_t)-1)
+        {
+            loader.PutEdge(replyOfPost_vid, (EdgeType)snb::EdgeSchema::Message2Message_down, message_vid, livegraph::Bytes((char*)&creationDateInt, sizeof(creationDateInt)));
+        }
+        if(replyOfComment_vid != (uint64_t)-1)
+        {
+            loader.PutEdge(replyOfComment_vid, (EdgeType)snb::EdgeSchema::Message2Message_down, message_vid, livegraph::Bytes((char*)&creationDateInt, sizeof(creationDateInt)));
+        }
 
 //        const snb::MessageSchema::Message *message = (const snb::MessageSchema::Message*)message_buf.data();
 //        std::cout << message->id << "|" << std::string(message->imageFile(), message->imageFileLen()) << "|" 
@@ -341,6 +363,7 @@ void importTag(snb::TagSchema &tagSchema, std::string path, snb::TagClassSchema 
         auto tag_buf = snb::TagSchema::createTag(std::stoull(tag_v[0]), tag_v[1], tag_v[2], hasType_vid);
 
         loader.PutVertex(tag_vid, livegraph::Bytes(tag_buf.data(), tag_buf.size()));
+        loader.PutEdge(hasType_vid, (EdgeType)snb::EdgeSchema::TagClass2Tag, tag_vid, livegraph::Bytes());
 
 //        const snb::TagSchema::Tag *tag = (const snb::TagSchema::Tag*)tag_buf.data();
 //        std::cout << tag->id << "|" << std::string(tag->name(), tag->nameLen()) << "|" 
@@ -369,6 +392,10 @@ void importTagClass(snb::TagClassSchema &tagclassSchema, std::string path)
         auto tagclass_buf = snb::TagClassSchema::createTagClass(std::stoull(tagclass_v[0]), tagclass_v[1], tagclass_v[2], isSubclassOf_vid);
 
         loader.PutVertex(tagclass_vid, livegraph::Bytes(tagclass_buf.data(), tagclass_buf.size()));
+        if(isSubclassOf_vid != (uint64_t)-1)
+        {
+            loader.PutEdge(isSubclassOf_vid, (EdgeType)snb::EdgeSchema::TagClass2TagClass_down, tagclass_vid, livegraph::Bytes());
+        }
 
 //        const snb::TagClassSchema::TagClass *tagclass = (const snb::TagClassSchema::TagClass*)tagclass_buf.data();
 //        std::cout << tagclass->id << "|" << std::string(tagclass->name(), tagclass->nameLen()) << "|" 
@@ -400,6 +427,7 @@ void importForum(snb::ForumSchema &forumSchema, std::string path, snb::PersonSch
                 moderator_vid);
 
         loader.PutVertex(forum_vid, livegraph::Bytes(forum_buf.data(), forum_buf.size()));
+        loader.PutEdge(moderator_vid, (EdgeType)snb::EdgeSchema::Person2Forum_moderator, forum_vid, livegraph::Bytes());
 
 //        const snb::ForumSchema::Forum *forum = (const snb::ForumSchema::Forum*)forum_buf.data();
 //        std::cout << forum->id << "|" << std::string(forum->title(), forum->titleLen()) << "|" 
@@ -407,6 +435,57 @@ void importForum(snb::ForumSchema &forumSchema, std::string path, snb::PersonSch
 //        std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::time_point(std::chrono::milliseconds(forum->creationDate)));
 //        std::cout << std::ctime(&t);
 
+    }
+}
+
+void importRawEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x2y, snb::EdgeSchema y2x, std::string path)
+{
+    std::ifstream ifs_rawEdge(path);
+
+    std::vector<std::string> all_rawEdges;
+    for(std::string line;std::getline(ifs_rawEdge, line);) all_rawEdges.push_back(line);
+
+    auto loader = graph->BeginBatchLoad();
+
+    for(size_t i=1;i<all_rawEdges.size();i++)
+    {
+        std::vector<std::string> rawEdge_v = split(all_rawEdges[i], csv_split);
+
+        uint64_t x_vid = xSchema.findId(std::stoull(rawEdge_v[0]));
+        uint64_t y_vid = ySchema.findId(std::stoull(rawEdge_v[1]));
+
+        loader.PutEdge(x_vid, (EdgeType)x2y, y_vid, livegraph::Bytes());
+        loader.PutEdge(y_vid, (EdgeType)y2x, x_vid, livegraph::Bytes());
+    }
+}
+
+void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x2y, snb::EdgeSchema y2x, std::string path, std::function<snb::Buffer(std::string)> dataParser)
+{
+    std::ifstream ifs_dataEdge(path);
+
+    std::vector<std::string> all_dataEdges;
+    for(std::string line;std::getline(ifs_dataEdge, line);) all_dataEdges.push_back(line);
+
+    std::vector<std::vector<std::string>> dataEdge_vs;
+    for(size_t i=1;i<all_dataEdges.size();i++)
+    {
+        dataEdge_vs.emplace_back(split(all_dataEdges[i], csv_split));
+    }
+    all_dataEdges.clear();
+    tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
+        return a[2] < b[2];
+    });
+
+    auto loader = graph->BeginBatchLoad();
+
+    for(auto &dataEdge_v : dataEdge_vs)
+    {
+        uint64_t x_vid = xSchema.findId(std::stoull(dataEdge_v[0]));
+        uint64_t y_vid = ySchema.findId(std::stoull(dataEdge_v[1]));
+        auto dataEdge_buf = dataParser(dataEdge_v[2]);
+
+        loader.PutEdge(x_vid, (EdgeType)x2y, y_vid, livegraph::Bytes(dataEdge_buf.data(), dataEdge_buf.size()));
+        loader.PutEdge(y_vid, (EdgeType)y2x, x_vid, livegraph::Bytes(dataEdge_buf.data(), dataEdge_buf.size()));
     }
 }
 
@@ -451,10 +530,43 @@ int main(int argc, char** argv)
         pool.emplace_back(importTag,      std::ref(tagSchema),      dataPath, std::ref(tagclassSchema));
         pool.emplace_back(importTagClass, std::ref(tagclassSchema), dataPath);
         pool.emplace_back(importForum,    std::ref(forumSchema),    dataPath, std::ref(personSchema));
+
+        pool.emplace_back(importRawEdge, std::ref(personSchema),  std::ref(tagSchema), snb::EdgeSchema::Person2Tag,  snb::EdgeSchema::Tag2Person,  dataPath+snb::personHasInterestPathSuffix);
+        pool.emplace_back(importRawEdge, std::ref(postSchema),    std::ref(tagSchema), snb::EdgeSchema::Post2Tag,    snb::EdgeSchema::Tag2Post,    dataPath+snb::postHasTagPathSuffix);
+        pool.emplace_back(importRawEdge, std::ref(commentSchema), std::ref(tagSchema), snb::EdgeSchema::Comment2Tag, snb::EdgeSchema::Tag2Comment, dataPath+snb::commentHasTagPathSuffix);
+        pool.emplace_back(importRawEdge, std::ref(forumSchema),   std::ref(tagSchema), snb::EdgeSchema::Forum2Tag,   snb::EdgeSchema::Tag2Forum,   dataPath+snb::forumHasTagPathSuffix);
+
+        auto DateTimeParser = [](std::string str)
+        {
+            auto dateTime = from_time(str);
+            snb::Buffer buf(sizeof(uint64_t));
+            *(uint64_t*)buf.data() = std::chrono::duration_cast<std::chrono::milliseconds>(dateTime.time_since_epoch()).count();
+            return buf;
+        };
+
+        auto YearParser = [](std::string str)
+        {
+            snb::Buffer buf(sizeof(int32_t));
+            *(int32_t*)buf.data() = std::stoi(str);
+            return buf;
+        };
+
+        pool.emplace_back(importDataEdge, std::ref(forumSchema), std::ref(personSchema),   snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
+                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser);
+        pool.emplace_back(importDataEdge, std::ref(forumSchema), std::ref(personSchema),   snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
+                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser);
+        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
+                dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser);
+        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(commentSchema), snb::EdgeSchema::Person2Comment_like, snb::EdgeSchema::Comment2Person_like, 
+                dataPath+snb::personLikeCommentPathSuffix, DateTimeParser);
+        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_study,    snb::EdgeSchema::Org2Person_study, 
+                dataPath+snb::personStudyAtOrgPathSuffix, YearParser);
+        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_work,     snb::EdgeSchema::Org2Person_work, 
+                dataPath+snb::personWorkAtOrgPathSuffix, YearParser);
         for(auto &t:pool) t.join();
     }
 
-    std::cerr << "Finish importVertex" << std::endl;
+    std::cerr << "Finish import" << std::endl;
 
     delete graph;
     return 0;

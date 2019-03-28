@@ -529,4 +529,46 @@ namespace snb
             return buf;
         }
     };
+
+    enum class EdgeSchema : int16_t
+    {
+        Forum2Post,                //imported
+        //Post2Forum,              //inlined
+        //Message2Person_creator,  //DateTime, inlined
+        Person2Post_creator,       //DateTime, imported
+        Person2Comment_creator,    //DateTime, imported
+        Person2Tag,                //imported
+        Tag2Person,                //imported
+        Forum2Person_member,       //DateTime, imported
+        Person2Forum_member,       //DateTime, imported
+        //Forum2Person_moderator,  //inlined
+        Person2Forum_moderator,    //imported
+        Post2Tag,                  //imported
+        Tag2Post,                  //imported
+        Comment2Tag,               //imported
+        Tag2Comment,               //imported
+        Forum2Tag,                 //imported
+        Tag2Forum,                 //imported
+        //Tag2TagClass,            //inlined
+        TagClass2Tag,              //imported
+        Place2Place_down,          //imported
+        //Place2Place_up,          //inlined
+        //Person2Place,            //inlined
+        Place2Person,              //imported
+        //Org2Place,               //inlined
+        Place2Org,                 //imported
+        //TagClass2TagClass_up,    //inlined
+        TagClass2TagClass_down,    //imported
+        Person2Person,             //DateTime, imported
+        Person2Post_like,          //DateTime, imported
+        Post2Person_like,          //DateTime, imported
+        Person2Comment_like,       //DateTime, imported
+        Comment2Person_like,       //DateTime, imported
+        //Message2Message_up,      //DateTime, inlined
+        Message2Message_down,      //DateTime, imported
+        Person2Org_study,          //Year, imported
+        Org2Person_study,          //Year, imported
+        Person2Org_work,           //Year, imported
+        Org2Person_work,           //Year, imported
+    };
 }
