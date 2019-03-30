@@ -23,6 +23,31 @@ else()
     message(STATUS "The compiler ${CMAKE_CXX_COMPILER} has no march native support.")
 endif()
 
+find_package(PkgConfig)
+pkg_check_modules(THRIFT REQUIRED thrift)
+include_directories(${THRIFT_INCLUDE_DIRS})
+link_directories(${THRIFT_LIBRARY_DIRS})
+add_definitions(${THRIFT_CFLAGS_OTHER})
+
+set(THRIFT_GEN_PATH ${CMAKE_BINARY_DIR}/gen-cpp)
+set(THRIFT_CODE_PATH ${CMAKE_SOURCE_DIR}/thrift)
+add_custom_command(
+OUTPUT
+    ${THRIFT_GEN_PATH}/interactive_constants.cpp
+    ${THRIFT_GEN_PATH}/interactive_constants.h
+    ${THRIFT_GEN_PATH}/Interactive.cpp
+    ${THRIFT_GEN_PATH}/Interactive.h
+    ${THRIFT_GEN_PATH}/interactive_types.cpp
+    ${THRIFT_GEN_PATH}/interactive_types.h
+COMMAND
+    thrift --gen cpp ${THRIFT_CODE_PATH}/interactive.thrift
+DEPENDS
+    ${THRIFT_CODE_PATH}/interactive.thrift
+WORKING_DIRECTORY
+    ${CMAKE_BINARY_DIR}
+)
+include_directories(${THRIFT_GEN_PATH})
+
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DNDEBUG")
 if(NOT CMAKE_BUILD_TYPE)
@@ -33,6 +58,6 @@ endif(NOT CMAKE_BUILD_TYPE)
 set(PROJECT_DEPS_DIR ${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
-add_executable(snb_server src/server.cpp)
+add_executable(snb_server src/server.cpp ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
 
-target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES})
+target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} ${THRIFT_LIBRARIES})

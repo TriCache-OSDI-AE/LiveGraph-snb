@@ -13,6 +13,22 @@
 #include "core/import.h"
 #include "LiveGraph/core/graph.hpp"
 
+#include "Interactive.h"
+#include <thrift/transport/TSocket.h>
+#include <thrift/concurrency/ThreadManager.h>
+#include <thrift/concurrency/PlatformThreadFactory.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/server/TThreadPoolServer.h>
+#include <thrift/transport/TServerSocket.h>
+#include <thrift/transport/TBufferTransports.h>
+
+using namespace ::apache::thrift;
+using namespace ::apache::thrift::concurrency;
+using namespace ::apache::thrift::protocol;
+using namespace ::apache::thrift::transport;
+using namespace ::apache::thrift::server;
+using namespace ::interactive;
+
 livegraph::Graph *graph = nullptr;
 
 std::vector<std::string> static inline split(const std::string &s, char delim) {
@@ -489,10 +505,45 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
     }
 }
 
+class InteractiveHandler : virtual public InteractiveIf
+{
+ public:
+    InteractiveHandler()
+    {
+    }
+
+    void shortQuery1(ShortQuery1Response& _return, const ShortQuery1Request& request)
+    {
+        // Your implementation goes here
+        printf("shortQuery1\n");
+    }
+
+};
+
+class InteractiveCloneFactory : virtual public InteractiveIfFactory {
+ public:
+    virtual ~InteractiveCloneFactory() {}
+    virtual InteractiveIf* getHandler(const ::apache::thrift::TConnectionInfo& connInfo)
+    {
+        stdcxx::shared_ptr<TSocket> sock = stdcxx::dynamic_pointer_cast<TSocket>(connInfo.transport);
+        std::cout << "Incoming connection\n";
+        std::cout << "\tSocketInfo: "  << sock->getSocketInfo()  << "\n";
+        std::cout << "\tPeerHost: "    << sock->getPeerHost()    << "\n";
+        std::cout << "\tPeerAddress: " << sock->getPeerAddress() << "\n";
+        std::cout << "\tPeerPort: "    << sock->getPeerPort()    << "\n";
+        return new InteractiveHandler;
+    }
+    virtual void releaseHandler( InteractiveIf* handler) {
+        delete handler;
+    }
+};
+
+
 int main(int argc, char** argv)
 {
     std::string graphPath = argv[1];
     std::string dataPath = argv[2];
+    int port = std::stoi(argv[3]);
 
     graph = new livegraph::Graph(graphPath);
 
@@ -518,7 +569,7 @@ int main(int argc, char** argv)
         for(auto &t:pool) t.join();
     }
 
-    std::cerr << "Finish prepareVIndex" << std::endl;
+    std::cout << "Finish prepareVIndex" << std::endl;
 
     {
         std::vector<std::thread> pool;
@@ -566,7 +617,22 @@ int main(int argc, char** argv)
         for(auto &t:pool) t.join();
     }
 
-    std::cerr << "Finish import" << std::endl;
+    std::cout << "Finish import" << std::endl;
+
+    const int workerCount = std::thread::hardware_concurrency();
+    stdcxx::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
+    threadManager->threadFactory(stdcxx::make_shared<PlatformThreadFactory>());
+    threadManager->start();
+
+    TThreadPoolServer server(
+        stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
+        stdcxx::make_shared<TServerSocket>(port),
+        stdcxx::make_shared<TBufferedTransportFactory>(),
+        stdcxx::make_shared<TBinaryProtocolFactory>(),
+        threadManager);
+
+    std::cout << "Starting the server..." << std::endl;
+    server.serve();
 
     delete graph;
     return 0;
