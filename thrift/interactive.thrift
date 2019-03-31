@@ -1,22 +1,20 @@
 namespace cpp interactive
-namespace d interactive
-namespace java interactive
-namespace php interactive
-namespace perl interactive
+namespace java com.ldbc.impls.workloads.ldbc.snb.livegraph.interactive
 
 struct ShortQuery1Request {
-    1: i64 personID,
+    1: i64 personId,
 }
 
 struct ShortQuery1Response {
-    1: string firstName,
-    2: string lastName,
-    3: i64 birthday,
-    4: string locationIp,
-    5: string browserUsed,
-    6: i64 cityId,
-    7: string gender,
-    8: i64 creationDate,
+    1: i32 ret;
+    2: string firstName,
+    3: string lastName,
+    4: i64 birthday,
+    5: string locationIp,
+    6: string browserUsed,
+    7: i64 cityId,
+    8: string gender,
+    9: i64 creationDate,
 }
 
 service Interactive {

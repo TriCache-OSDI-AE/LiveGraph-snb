@@ -12,19 +12,30 @@ namespace snb
     {
     private:
         tbb::concurrent_hash_map<uint64_t, uint64_t> vindex;
+        tbb::concurrent_hash_map<uint64_t, uint64_t> rvindex;
     public:
         void insertId(uint64_t id, uint64_t vid)
         {   
-            tbb::concurrent_hash_map<uint64_t, uint64_t>::accessor a;
+            tbb::concurrent_hash_map<uint64_t, uint64_t>::accessor a, b;
             vindex.insert(a, id);
             a->second = vid;
+            rvindex.insert(b, vid);
+            b->second = id;
         }
 
         uint64_t findId(uint64_t id)
         {
             tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
             bool exist = vindex.find(a, id);
-            assert(exist);
+            if(!exist) return (uint64_t)-1;
+            return a->second;
+        }
+
+        uint64_t rfindId(uint64_t vid)
+        {
+            tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
+            bool exist = rvindex.find(a, vid);
+            if(!exist) return (uint64_t)-1;
             return a->second;
         }
     };

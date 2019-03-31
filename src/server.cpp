@@ -30,6 +30,14 @@ using namespace ::apache::thrift::server;
 using namespace ::interactive;
 
 livegraph::Graph *graph = nullptr;
+snb::PersonSchema personSchema;
+snb::PlaceSchema placeSchema;
+snb::OrgSchema orgSchema;
+snb::MessageSchema postSchema;
+snb::MessageSchema commentSchema;
+snb::TagSchema tagSchema;
+snb::TagClassSchema tagclassSchema;
+snb::ForumSchema forumSchema;
 
 std::vector<std::string> static inline split(const std::string &s, char delim) {
     std::stringstream ss(s);
@@ -59,6 +67,11 @@ std::chrono::system_clock::time_point static inline from_time(const std::string 
     if(c == '+') tm.tm_hour += zone;
     if(c == '-') tm.tm_hour -= zone;
     return std::chrono::system_clock::from_time_t(std::mktime(&tm)) + std::chrono::milliseconds(ms);
+}
+uint64_t static inline to_time(uint32_t date)
+{
+    auto tp = std::chrono::system_clock::time_point(std::chrono::hours(date));
+    return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
 }
 
 const static char csv_split('|');
@@ -515,7 +528,24 @@ class InteractiveHandler : virtual public InteractiveIf
     void shortQuery1(ShortQuery1Response& _return, const ShortQuery1Request& request)
     {
         // Your implementation goes here
-        printf("shortQuery1\n");
+        uint64_t vid = personSchema.findId(request.personId);
+        _return = ShortQuery1Response();
+        if(vid == (uint64_t)-1)
+        {
+            _return.ret = 1;
+            return;
+        }
+        auto txn = graph->BeginTransaction();
+        auto bytes = txn.GetVertex(personSchema.findId(request.personId));
+        auto person = (snb::PersonSchema::Person*)bytes.Data();
+        _return.firstName = std::string(person->firstName(), person->firstNameLen());
+        _return.lastName = std::string(person->lastName(), person->lastNameLen());
+        _return.birthday = to_time(person->birthday);
+        _return.locationIp = std::string(person->locationIP(), person->locationIPLen());
+        _return.browserUsed = std::string(person->browserUsed(), person->browserUsedLen());
+        _return.cityId = placeSchema.rfindId(person->place);
+        _return.gender = std::string(person->gender(), person->genderLen());
+        _return.creationDate = person->creationDate;
     }
 
 };
@@ -526,11 +556,11 @@ class InteractiveCloneFactory : virtual public InteractiveIfFactory {
     virtual InteractiveIf* getHandler(const ::apache::thrift::TConnectionInfo& connInfo)
     {
         stdcxx::shared_ptr<TSocket> sock = stdcxx::dynamic_pointer_cast<TSocket>(connInfo.transport);
-        std::cout << "Incoming connection\n";
-        std::cout << "\tSocketInfo: "  << sock->getSocketInfo()  << "\n";
-        std::cout << "\tPeerHost: "    << sock->getPeerHost()    << "\n";
-        std::cout << "\tPeerAddress: " << sock->getPeerAddress() << "\n";
-        std::cout << "\tPeerPort: "    << sock->getPeerPort()    << "\n";
+//        std::cout << "Incoming connection\n";
+//        std::cout << "\tSocketInfo: "  << sock->getSocketInfo()  << "\n";
+//        std::cout << "\tPeerHost: "    << sock->getPeerHost()    << "\n";
+//        std::cout << "\tPeerAddress: " << sock->getPeerAddress() << "\n";
+//        std::cout << "\tPeerPort: "    << sock->getPeerPort()    << "\n";
         return new InteractiveHandler;
     }
     virtual void releaseHandler( InteractiveIf* handler) {
@@ -546,15 +576,6 @@ int main(int argc, char** argv)
     int port = std::stoi(argv[3]);
 
     graph = new livegraph::Graph(graphPath);
-
-    snb::PersonSchema personSchema;
-    snb::PlaceSchema placeSchema;
-    snb::OrgSchema orgSchema;
-    snb::MessageSchema postSchema;
-    snb::MessageSchema commentSchema;
-    snb::TagSchema tagSchema;
-    snb::TagClassSchema tagclassSchema;
-    snb::ForumSchema forumSchema;
 
     {
         std::vector<std::thread> pool;
