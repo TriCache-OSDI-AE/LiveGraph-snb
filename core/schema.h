@@ -113,7 +113,7 @@ namespace snb
             {
                 return length-locationIP_offset;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createPerson(uint64_t id, std::string firstName, std::string lastName, std::string gender, uint32_t birthday, std::vector<std::string> emails, std::vector<std::string> speaks, std::string browserUsed, std::string locationIP, uint64_t creationDate, uint64_t place)
         {
@@ -173,7 +173,24 @@ namespace snb
 
     class PlaceSchema : public Schema
     {
+    private:
+        tbb::concurrent_hash_map<std::string, uint64_t> nameindex;
     public:
+        void insertName(std::string name, uint64_t vid)
+        {   
+            tbb::concurrent_hash_map<std::string, uint64_t>::accessor a;
+            nameindex.insert(a, name);
+            a->second = vid;
+        }
+
+        uint64_t findName(std::string name)
+        {
+            tbb::concurrent_hash_map<std::string, uint64_t>::accessor a;
+            bool exist = nameindex.find(a, name);
+            if(!exist) return (uint64_t)-1;
+            return a->second;
+        }
+
         struct Place
         {
             uint64_t id;
@@ -204,7 +221,7 @@ namespace snb
             {
                 return length-url_offset;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createPlace(uint64_t id, std::string name, std::string url, Place::Type type, uint64_t isPartOf)
         {
@@ -263,7 +280,7 @@ namespace snb
             {
                 return length-url_offset;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createOrg(uint64_t id, Org::Type type, std::string name, std::string url, uint64_t place)
         {
@@ -353,7 +370,7 @@ namespace snb
             {
                 return length-content_offset;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createMessage(uint64_t id, std::string imageFile, uint64_t creationDate, std::string locationIP, std::string browserUsed, std::string language, std::string content, uint64_t creator, uint64_t forumid, uint64_t place, uint64_t replyOfPost, uint64_t replyOfComment, Message::Type type)
         {
@@ -423,7 +440,7 @@ namespace snb
             {
                 return length-url_offset;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createTag(uint64_t id, std::string name, std::string url, uint64_t hasType)
         {
@@ -475,7 +492,7 @@ namespace snb
             {
                 return length-url_offset;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createTagClass(uint64_t id, std::string name, std::string url, uint64_t isSubclassOf)
         {
@@ -519,7 +536,7 @@ namespace snb
             {
                 return length;
             }
-        } __attribute__((packed));
+        };// __attribute__((packed));
 
         Buffer static createForum(uint64_t id, std::string title, uint64_t creationDate, uint64_t moderator)
         {
