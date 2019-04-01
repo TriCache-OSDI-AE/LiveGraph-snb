@@ -9,6 +9,7 @@
 #include <iostream>
 #include <functional>
 #include <tbb/parallel_sort.h>
+#include <tbb/concurrent_vector.h>
 #include "core/schema.h" 
 #include "core/import.h"
 #include "LiveGraph/core/graph.hpp"
@@ -518,23 +519,124 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
     }
 }
 
+bool static operator == (const livegraph::Bytes &a, const std::string &b)
+{
+    if(a.Size() != b.size()) return false;
+    for(size_t i=0;i<a.Size();i++) if(a.Data()[i] != b[i]) return false;
+    return true;
+}
+
 class InteractiveHandler : virtual public InteractiveIf
 {
- public:
+private:
+    std::vector<std::pair<int, uint64_t>> multihop(livegraph::Engine &txn, uint64_t root, int num_hops, EdgeType etype)
+    {
+        std::vector<size_t> frontier(root);
+        std::vector<size_t> next_frontier;
+        std::vector<std::pair<int, uint64_t>> collect;
+
+        //TODO: parallel
+        for (int k=0;k<num_hops;k++)
+        {
+            next_frontier.clear();
+            for (auto vid : frontier)
+            {
+                auto nbrs = txn.GetNeighborhood(vid, etype);
+                while (nbrs.Valid())
+                {
+                    next_frontier.push_back(nbrs.NeighborId());
+                    collect.emplace_back(k, nbrs.NeighborId());
+                    nbrs.Next();
+                }
+            }
+            frontier.swap(next_frontier);
+        }
+
+        tbb::parallel_sort(collect.begin(), collect.end());
+        auto last = std::unique(collect.begin(), collect.end());
+        collect.erase(last, collect.end());
+        return collect;
+    }
+
+public:
     InteractiveHandler()
     {
+    }
+
+    void query1(std::vector<Query1Response> & _return, const Query1Request& request)
+    {
+        graph->AssignWorkerId();
+        _return.clear();
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->BeginAnalytics();
+        auto friends = multihop(engine, vid, 3, (EdgeType)snb::EdgeSchema::Person2Person);
+        tbb::concurrent_vector<std::tuple<int, livegraph::Bytes, uint64_t, uint64_t, snb::PersonSchema::Person*>> idx;
+        #pragma omp parallel for
+        for(size_t i=0;i<friends.size();i++)
+        {
+            auto person = (snb::PersonSchema::Person*)engine.GetVertex(friends[i].second).Data();
+            auto firstName = livegraph::Bytes(person->firstName(), person->firstNameLen());
+            if(firstName == request.firstName)
+            {
+                auto lastName = livegraph::Bytes(person->lastName(), person->lastNameLen());
+                idx.push_back(std::make_tuple(friends[i].first, lastName, *(uint64_t*)person->id, friends[i].second, person));
+            }
+        }
+        tbb::parallel_sort(idx.begin(), idx.end());
+        for(size_t i=0;i<std::min((size_t)request.limit, idx.size());i++)
+        {
+            Query1Response response;
+            auto vid = std::get<3>(idx[i]);
+            auto person = std::get<4>(idx[i]);
+            response.friendId = person->id;
+            response.friendLastName = std::string(person->lastName(), person->lastNameLen());
+            response.distanceFromPerson = std::get<0>(idx[i]);
+            response.friendGender = std::string(person->gender(), person->genderLen());
+            response.friendBrowserUsed = std::string(person->browserUsed(), person->browserUsedLen());
+            response.friendEmails = split(std::string(person->emails(), person->emailsLen()), zero_split);
+            response.friendLanguages = split(std::string(person->speaks(), person->speaksLen()), zero_split);
+            auto place = (snb::PlaceSchema::Place*)engine.GetVertex(person->place).Data();
+            response.friendCityName = std::string(place->name(), place->nameLen());
+            {
+                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_study);
+                while (nbrs.Valid())
+                {
+                    int year = *(int*)nbrs.EdgeData().Data();
+                    uint64_t vid = nbrs.NeighborId();
+                    auto org = (snb::OrgSchema::Org*)engine.GetVertex(vid).Data();
+                    auto place = (snb::PlaceSchema::Place*)engine.GetVertex(org->place).Data();
+                    response.friendUniversities_year.emplace_back(year);
+                    response.friendUniversities_name.emplace_back(org->name(), org->nameLen());
+                    response.friendUniversities_city.emplace_back(place->name(), place->nameLen());
+                    nbrs.Next();
+                }
+            }
+            {
+                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_work);
+                while (nbrs.Valid())
+                {
+                    int year = *(int*)nbrs.EdgeData().Data();
+                    uint64_t vid = nbrs.NeighborId();
+                    auto org = (snb::OrgSchema::Org*)engine.GetVertex(vid).Data();
+                    auto place = (snb::PlaceSchema::Place*)engine.GetVertex(org->place).Data();
+                    response.friendUniversities_year.emplace_back(year);
+                    response.friendUniversities_name.emplace_back(org->name(), org->nameLen());
+                    response.friendUniversities_city.emplace_back(place->name(), place->nameLen());
+                    nbrs.Next();
+                }
+            }
+            _return.emplace_back(response);
+        }
+
     }
 
     void shortQuery1(ShortQuery1Response& _return, const ShortQuery1Request& request)
     {
         // Your implementation goes here
-        uint64_t vid = personSchema.findId(request.personId);
         _return = ShortQuery1Response();
-        if(vid == (uint64_t)-1)
-        {
-            _return.ret = 1;
-            return;
-        }
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid == (uint64_t)-1) return;
         auto txn = graph->BeginTransaction();
         auto bytes = txn.GetVertex(personSchema.findId(request.personId));
         auto person = (snb::PersonSchema::Person*)bytes.Data();
@@ -551,7 +653,7 @@ class InteractiveHandler : virtual public InteractiveIf
 };
 
 class InteractiveCloneFactory : virtual public InteractiveIfFactory {
- public:
+public:
     virtual ~InteractiveCloneFactory() {}
     virtual InteractiveIf* getHandler(const ::apache::thrift::TConnectionInfo& connInfo)
     {
