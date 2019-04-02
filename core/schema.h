@@ -13,6 +13,7 @@ namespace snb
     private:
         tbb::concurrent_hash_map<uint64_t, uint64_t> vindex;
         tbb::concurrent_hash_map<uint64_t, uint64_t> rvindex;
+        tbb::concurrent_hash_map<std::string, uint64_t> nameindex;
     public:
         void insertId(uint64_t id, uint64_t vid)
         {   
@@ -35,6 +36,21 @@ namespace snb
         {
             tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
             bool exist = rvindex.find(a, vid);
+            if(!exist) return (uint64_t)-1;
+            return a->second;
+        }
+
+        void insertName(std::string name, uint64_t vid)
+        {   
+            tbb::concurrent_hash_map<std::string, uint64_t>::accessor a;
+            nameindex.insert(a, name);
+            a->second = vid;
+        }
+
+        uint64_t findName(std::string name)
+        {
+            tbb::concurrent_hash_map<std::string, uint64_t>::const_accessor a;
+            bool exist = nameindex.find(a, name);
             if(!exist) return (uint64_t)-1;
             return a->second;
         }
@@ -173,23 +189,7 @@ namespace snb
 
     class PlaceSchema : public Schema
     {
-    private:
-        tbb::concurrent_hash_map<std::string, uint64_t> nameindex;
     public:
-        void insertName(std::string name, uint64_t vid)
-        {   
-            tbb::concurrent_hash_map<std::string, uint64_t>::accessor a;
-            nameindex.insert(a, name);
-            a->second = vid;
-        }
-
-        uint64_t findName(std::string name)
-        {
-            tbb::concurrent_hash_map<std::string, uint64_t>::accessor a;
-            bool exist = nameindex.find(a, name);
-            if(!exist) return (uint64_t)-1;
-            return a->second;
-        }
 
         struct Place
         {
