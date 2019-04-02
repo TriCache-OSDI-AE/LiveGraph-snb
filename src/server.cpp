@@ -131,6 +131,7 @@ void importPerson(snb::PersonSchema &personSchema, std::string path, snb::PlaceS
             if(v[0] != person_v[0]) break;
             speaks_v.push_back(v[1]);
         }
+        std::sort(speaks_v.begin(), speaks_v.end());
 
         std::chrono::system_clock::time_point birthday = from_date(person_v[4]);
         std::chrono::system_clock::time_point creationDate = from_time(person_v[5]);
@@ -493,7 +494,7 @@ void importRawEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x
     }
 }
 
-void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x2y, snb::EdgeSchema y2x, std::string path, std::function<snb::Buffer(std::string)> dataParser)
+void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x2y, snb::EdgeSchema y2x, std::string path, std::function<snb::Buffer(std::string)> dataParser, bool sort)
 {
     std::ifstream ifs_dataEdge(path);
 
@@ -506,7 +507,7 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
         dataEdge_vs.emplace_back(split(all_dataEdges[i], csv_split));
     }
     all_dataEdges.clear();
-    tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
+    if(sort) tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
         return a[2] < b[2];
     });
 
@@ -537,6 +538,7 @@ private:
     {
         std::vector<size_t> frontier = {root};
         std::vector<size_t> next_frontier;
+        std::unordered_set<uint64_t> idx;
         std::vector<std::pair<int, uint64_t>> collect;
 
         //TODO: parallel
@@ -551,7 +553,11 @@ private:
                     if(nbrs.NeighborId() != root)
                     {
                         next_frontier.push_back(nbrs.NeighborId());
-                        collect.emplace_back(k, nbrs.NeighborId());
+                        if(idx.find(nbrs.NeighborId()) == idx.end())
+                        {
+                            idx.emplace(nbrs.NeighborId());
+                            collect.emplace_back(k, nbrs.NeighborId());
+                        }
                     }
                     nbrs.Next();
                 }
@@ -560,8 +566,6 @@ private:
         }
 
         tbb::parallel_sort(collect.begin(), collect.end());
-        auto last = std::unique(collect.begin(), collect.end());
-        collect.erase(last, collect.end());
         return collect;
     }
 
@@ -633,39 +637,60 @@ public:
             auto person = std::get<4>(idx[i]);
             response.friendId = person->id;
             response.friendLastName = std::string(person->lastName(), person->lastNameLen());
-            response.distanceFromPerson = std::get<0>(idx[i]);
+            response.distanceFromPerson = std::get<0>(idx[i])+1;
+            response.friendBirthday = to_time(person->birthday);
+            response.friendCreationDate = person->creationDate;
             response.friendGender = std::string(person->gender(), person->genderLen());
             response.friendBrowserUsed = std::string(person->browserUsed(), person->browserUsedLen());
+            response.friendLocationIp = std::string(person->locationIP(), person->locationIPLen());
             response.friendEmails = split(std::string(person->emails(), person->emailsLen()), zero_split);
             response.friendLanguages = split(std::string(person->speaks(), person->speaksLen()), zero_split);
             auto place = (snb::PlaceSchema::Place*)engine.GetVertex(person->place).Data();
             response.friendCityName = std::string(place->name(), place->nameLen());
             {
                 auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_study);
+                std::vector<std::tuple<uint64_t, int, snb::OrgSchema::Org*, snb::PlaceSchema::Place*>> orgs;
                 while (nbrs.Valid())
                 {
                     int year = *(int*)nbrs.EdgeData().Data();
                     uint64_t vid = nbrs.NeighborId();
                     auto org = (snb::OrgSchema::Org*)engine.GetVertex(vid).Data();
                     auto place = (snb::PlaceSchema::Place*)engine.GetVertex(org->place).Data();
+                    orgs.emplace_back(org->id, year, org, place);
+                    nbrs.Next();
+                }
+                std::sort(orgs.begin(), orgs.end());
+                for(auto t:orgs)
+                {
+                    int year = std::get<1>(t);
+                    auto org = std::get<2>(t);
+                    auto place = std::get<3>(t);
                     response.friendUniversities_year.emplace_back(year);
                     response.friendUniversities_name.emplace_back(org->name(), org->nameLen());
                     response.friendUniversities_city.emplace_back(place->name(), place->nameLen());
-                    nbrs.Next();
                 }
             }
             {
                 auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_work);
+                std::vector<std::tuple<uint64_t, int, snb::OrgSchema::Org*, snb::PlaceSchema::Place*>> orgs;
                 while (nbrs.Valid())
                 {
                     int year = *(int*)nbrs.EdgeData().Data();
                     uint64_t vid = nbrs.NeighborId();
                     auto org = (snb::OrgSchema::Org*)engine.GetVertex(vid).Data();
                     auto place = (snb::PlaceSchema::Place*)engine.GetVertex(org->place).Data();
-                    response.friendUniversities_year.emplace_back(year);
-                    response.friendUniversities_name.emplace_back(org->name(), org->nameLen());
-                    response.friendUniversities_city.emplace_back(place->name(), place->nameLen());
+                    orgs.emplace_back(org->id, year, org, place);
                     nbrs.Next();
+                }
+                std::sort(orgs.begin(), orgs.end());
+                for(auto t:orgs)
+                {
+                    int year = std::get<1>(t);
+                    auto org = std::get<2>(t);
+                    auto place = std::get<3>(t);
+                    response.friendCompanies_year.emplace_back(year);
+                    response.friendCompanies_name.emplace_back(org->name(), org->nameLen());
+                    response.friendCompanies_city.emplace_back(place->name(), place->nameLen());
                 }
             }
             _return.emplace_back(response);
@@ -862,20 +887,13 @@ public:
                         while (nbrs.Valid())
                         {
                             tbb::concurrent_hash_map<uint64_t, std::pair<uint64_t, int>>::accessor a;
-                            if(date >= (uint64_t)request.startDate)
+                            bool isnew = idx.insert(a, nbrs.NeighborId());
+                            if(isnew)
                             {
-                                bool isnew = idx.insert(a, nbrs.NeighborId());
-                                if(isnew)
-                                {
-                                    a->second.first = message->creationDate;
-                                    a->second.second = 0;
-                                }
+                                a->second.first = message->creationDate;
+                                a->second.second = 1;
                             }
                             else
-                            {
-                                idx.find(a, nbrs.NeighborId());
-                            } 
-                            if(!a.empty())
                             {
                                 a->second.first = std::min(message->creationDate, a->second.first);
                                 a->second.second++;
@@ -890,9 +908,7 @@ public:
         std::set<std::pair<int, std::string>> idx_by_count;
         for(auto i=idx.begin();i!=idx.end();i++)
         {
-            const char mc = 127;
-            auto mkey = std::make_pair(-i->second.second, std::string(&mc, 1));
-            if(i->second.first >= (uint64_t)request.startDate && (idx_by_count.size() < (size_t)request.limit || *idx_by_count.rbegin() > mkey))
+            if(i->second.first >= (uint64_t)request.startDate && (idx_by_count.size() < (size_t)request.limit || idx_by_count.rbegin()->first >= -i->second.second))
             {
                 auto tag = (snb::TagSchema::Tag*)engine.GetVertex(i->first).Data();
                 idx_by_count.emplace(-i->second.second, std::string(tag->name(), tag->nameLen()));
@@ -949,22 +965,20 @@ public:
                 a->second += p.second;
             }
         }
-        std::set<std::pair<int, std::string>> idx_by_count;
+        std::map<std::pair<int, size_t>, std::string> idx_by_count;
         for(auto i=idx.begin();i!=idx.end();i++)
         {
-            const char mc = 127;
-            auto mkey = std::make_pair(-i->second, std::string(&mc, 1));
-            if(idx_by_count.size() < (size_t)request.limit || *idx_by_count.rbegin() > mkey)
+            if(idx_by_count.size() < (size_t)request.limit || idx_by_count.rbegin()->first.first >= -i->second)
             {
                 auto forum = (snb::ForumSchema::Forum*)engine.GetVertex(i->first).Data();
-                idx_by_count.emplace(-i->second, std::string(forum->title(), forum->titleLen()));
-                while(idx_by_count.size() > (size_t)request.limit) idx_by_count.erase(*idx_by_count.rbegin());
+                idx_by_count.emplace(std::make_pair(-i->second, forum->id), std::string(forum->title(), forum->titleLen()));
+                while(idx_by_count.size() > (size_t)request.limit) idx_by_count.erase(idx_by_count.rbegin()->first);
             }
         }
         for(auto p : idx_by_count)
         {
             Query5Response resp;
-            resp.postCount = -p.first;
+            resp.postCount = -p.first.first;
             resp.forumTitle = p.second;
             _return.push_back(resp);
         }
@@ -1021,9 +1035,7 @@ public:
         std::set<std::pair<int, std::string>> idx_by_count;
         for(auto i=idx.begin();i!=idx.end();i++)
         {
-            const char mc = 127;
-            auto mkey = std::make_pair(-i->second, std::string(&mc, 1));
-            if(idx_by_count.size() < (size_t)request.limit || *idx_by_count.rbegin() > mkey)
+            if(idx_by_count.size() < (size_t)request.limit || idx_by_count.rbegin()->first >= -i->second)
             {
                 auto tag = (snb::TagSchema::Tag*)engine.GetVertex(i->first).Data();
                 idx_by_count.emplace(-i->second, std::string(tag->name(), tag->nameLen()));
@@ -1136,17 +1148,17 @@ int main(int argc, char** argv)
         };
 
         pool.emplace_back(importDataEdge, std::ref(forumSchema), std::ref(personSchema),   snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
-                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser);
+                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(forumSchema), std::ref(personSchema),   snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
-                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser);
+                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
-                dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser);
+                dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(commentSchema), snb::EdgeSchema::Person2Comment_like, snb::EdgeSchema::Comment2Person_like, 
-                dataPath+snb::personLikeCommentPathSuffix, DateTimeParser);
+                dataPath+snb::personLikeCommentPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_study,    snb::EdgeSchema::Org2Person_study, 
-                dataPath+snb::personStudyAtOrgPathSuffix, YearParser);
+                dataPath+snb::personStudyAtOrgPathSuffix, YearParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_work,     snb::EdgeSchema::Org2Person_work, 
-                dataPath+snb::personWorkAtOrgPathSuffix, YearParser);
+                dataPath+snb::personWorkAtOrgPathSuffix, YearParser, true);
         for(auto &t:pool) t.join();
     }
 
