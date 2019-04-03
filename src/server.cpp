@@ -81,6 +81,7 @@ std::pair<int, int> static inline to_monday(uint64_t date)
 {
     auto tp = std::chrono::system_clock::time_point(std::chrono::hours(date));
     time_t tt = std::chrono::system_clock::to_time_t(tp);
+    // not thread-safe
     tm utc_tm = *gmtime(&tt);
     return std::make_pair(utc_tm.tm_mon+1, utc_tm.tm_mday);
 }
@@ -657,7 +658,8 @@ private:
         forward_q.push_back(vid_from);
         backward_q.push_back(vid_to);
         int hops = 0;
-        while (hops++ < max_hops) {
+        while (hops++ < max_hops) 
+        {
             std::vector<uint64_t> new_front;
             // decide which way to search first
             if (forward_q.size() <= backward_q.size()) 
@@ -717,38 +719,138 @@ private:
 
     std::vector<std::vector<uint64_t>> pairwiseShortestPath_path(livegraph::Engine & txn, uint64_t vid_from, uint64_t vid_to, EdgeType etype, int max_hops = std::numeric_limits<int>::max()) 
     {
-        if(vid_from == vid_to) return {{vid_from, vid_to}};
-        std::vector<std::vector<uint64_t>> forward_q;
-        forward_q.push_back({vid_from});
-        std::set<std::vector<uint64_t>> paths;
-        int hops = 0, psp = max_hops;
-        while (hops++ < std::min(max_hops, psp)) {
-            std::vector<std::vector<uint64_t>> new_front;
-            for (const auto &path : forward_q) 
+        std::unordered_map<uint64_t, int> parent, child;
+        std::vector<uint64_t> forward_q, backward_q;
+        parent[vid_from] = 0;
+        child[vid_to] = 0;
+        forward_q.push_back(vid_from);
+        backward_q.push_back(vid_to);
+        int hops = 0, psp = max_hops, fhops = 0, bhops = 0;;
+        std::set<std::pair<uint64_t, uint64_t>> hits;
+        while (hops++ < std::min(psp, max_hops)) 
+        {
+            std::vector<uint64_t> new_front;
+            if (forward_q.size() <= backward_q.size()) 
             {
-                auto vid = path.back();
-                auto out_edges = txn.GetNeighborhood(vid, etype);
-                while (out_edges.Valid()) 
+                fhops++;
+                // search forward
+                for (uint64_t vid : forward_q) 
                 {
-                    uint64_t dst = out_edges.NeighborId();
-                    std::vector<uint64_t> new_path = path;
-                    new_path.emplace_back(dst);
-                    if (dst == vid_to) 
+                    auto out_edges = txn.GetNeighborhood(vid, etype);
+                    while (out_edges.Valid()) 
                     {
-                        // found the path
-                        psp = hops;
-                        paths.emplace(new_path);
+                        uint64_t dst = out_edges.NeighborId();
+                        if (child.find(dst) != child.end()) 
+                        {
+                            hits.emplace(vid, dst);
+                            psp = hops;
+                        }
+                        auto it = parent.find(dst);
+                        if (it == parent.end()) 
+                        {
+                            parent.emplace_hint(it, dst, fhops);
+                            new_front.push_back(dst);
+                        }
+                        out_edges.Next();
                     }
-                    new_front.push_back(new_path);
-                    out_edges.Next();
+                }
+                if (new_front.empty()) break;
+                forward_q.swap(new_front);
+            }
+            else 
+            {
+                for (uint64_t vid : backward_q) 
+                {
+                    bhops++;
+                    auto in_edges = txn.GetNeighborhood(vid, etype);
+                    while (in_edges.Valid()) 
+                    {
+                        uint64_t src = in_edges.NeighborId();
+                        if (parent.find(src) != parent.end()) 
+                        {
+                            hits.emplace(src, vid);
+                            psp = hops;
+                        }
+                        auto it = child.find(src);
+                        if (it == child.end()) 
+                        {
+                            child.emplace_hint(it, src, bhops);
+                            new_front.push_back(src);
+                        }
+                        in_edges.Next();
+                    }
+                }
+                if (new_front.empty()) break;
+                backward_q.swap(new_front);
+            }
+        }
+
+        std::vector<std::vector<uint64_t>> paths;
+        for(auto p : hits)
+        {
+            std::vector<size_t> path;
+            std::vector<std::vector<uint64_t>> fpaths, bpaths;
+            std::function<void(uint64_t, int)> fdfs = [&](uint64_t vid, int deep)
+            {
+                path.push_back(vid);
+                if(deep > 0)
+                {
+                    auto out_edges = txn.GetNeighborhood(vid, etype);
+                    while (out_edges.Valid()) 
+                    {
+                        uint64_t dst = out_edges.NeighborId();
+                        auto iter = parent.find(dst);
+                        if(iter != parent.end() && iter->second == deep-1)
+                        {
+                            fdfs(dst, deep-1);
+                        }
+                        out_edges.Next();
+                    }
+                }
+                else
+                {
+                    fpaths.emplace_back();
+                    std::reverse_copy(path.begin(), path.end(), std::back_inserter(fpaths.back()));
+                }
+                path.pop_back();
+            };
+
+            std::function<void(uint64_t, int)> bdfs = [&](uint64_t vid, int deep)
+            {
+                path.push_back(vid);
+                if(deep > 0)
+                {
+                    auto out_edges = txn.GetNeighborhood(vid, etype);
+                    while (out_edges.Valid()) 
+                    {
+                        uint64_t dst = out_edges.NeighborId();
+                        auto iter = child.find(dst);
+                        if(iter != child.end() && iter->second == deep-1)
+                        {
+                            bdfs(dst, deep-1);
+                        }
+                        out_edges.Next();
+                    }
+                }
+                else
+                {
+                    bpaths.emplace_back(path);
+                }
+                path.pop_back();
+            };
+
+            fdfs(p.first, parent[p.first]);
+            bdfs(p.second, child[p.second]);
+            for(auto &f: fpaths)
+            {
+                for(auto &b: bpaths)
+                {
+                    paths.emplace_back(f);
+                    std::copy(b.begin(), b.end(), std::back_inserter(paths.back()));
                 }
             }
-            if (new_front.empty()) break;
-            forward_q.swap(new_front);
         }
-        std::vector<std::vector<uint64_t>> ret;
-        std::copy(paths.begin(), paths.end(), std::back_inserter(ret));
-        return ret;
+        return paths;
     }
 
 public:
