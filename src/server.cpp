@@ -303,7 +303,7 @@ void importPost(snb::MessageSchema &postSchema, std::string path, snb::PersonSch
         auto message_buf = snb::MessageSchema::createMessage(std::stoull(message_v[0]), message_v[1], 
                 creationDateInt,
                 message_v[3], message_v[4], message_v[5], message_v[6], 
-                creator_vid, forumid_vid, place_vid, (uint64_t)-1, (uint64_t)-1, type);
+                creator_vid, forumid_vid, place_vid, (uint64_t)-1, (uint64_t)-1, (uint64_t)-1, type);
 
         loader.PutVertex(message_vid, livegraph::Bytes(message_buf.data(), message_buf.size()));
         loader.PutEdge(forumid_vid, (EdgeType)snb::EdgeSchema::Forum2Post, message_vid, livegraph::Bytes());
@@ -342,6 +342,8 @@ void importComment(snb::MessageSchema &commentSchema, std::string path, snb::Per
     });
 
     auto loader = graph->BeginBatchLoad();
+    if(graph->WorkerId() == -1) graph->AssignWorkerId();
+    auto engine = graph->BeginAnalytics();
 
     for(auto &message_v : message_vs)
     {
@@ -355,11 +357,13 @@ void importComment(snb::MessageSchema &commentSchema, std::string path, snb::Per
         uint64_t replyOfPost_vid = !message_v[8].empty()?postSchema.findId(std::stoull(message_v[8])):(uint64_t)-1;
         uint64_t replyOfComment_vid = message_v.size()>9?commentSchema.findId(std::stoull(message_v[9])):(uint64_t)-1;
         uint64_t creationDateInt = std::chrono::duration_cast<std::chrono::milliseconds>(creationDate.time_since_epoch()).count();
+        auto rvid = replyOfPost_vid==(uint64_t)-1?replyOfComment_vid:replyOfPost_vid;
+        auto reply = (snb::MessageSchema::Message*)engine.GetVertex(rvid).Data();
 
         auto message_buf = snb::MessageSchema::createMessage(std::stoull(message_v[0]), std::string(), 
                 creationDateInt,
                 message_v[2], message_v[3], std::string(), message_v[4], 
-                creator_vid, (uint64_t)-1, place_vid, replyOfPost_vid, replyOfComment_vid, type);
+                creator_vid, (uint64_t)-1, place_vid, replyOfPost_vid, replyOfComment_vid, reply->creator, type);
 
         loader.PutVertex(message_vid, livegraph::Bytes(message_buf.data(), message_buf.size()));
         loader.PutEdge(creator_vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator, message_vid, livegraph::Bytes((char*)&creationDateInt, sizeof(creationDateInt)));
@@ -1841,79 +1845,52 @@ public:
         if(vid2 == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
         auto paths = pairwiseShortestPath_path(engine, vid1, vid2, (EdgeType)snb::EdgeSchema::Person2Person);
-        std::unordered_map<uint64_t, std::pair<std::unordered_set<uint64_t>, std::unordered_set<uint64_t>>> messages;
         std::map<std::pair<uint64_t, uint64_t>, double> weights;
-        std::vector<std::pair<double, size_t>> idx;
+        tbb::concurrent_vector<std::pair<double, size_t>> idx;
         
+//        #pragma omp parallel for
         for(size_t pathidx=0;pathidx<paths.size();pathidx++)
         {
             auto &path = paths[pathidx];
-            for(auto vid : path)
-            {
-                if(messages.find(vid) == messages.end())
-                {
-                    auto &value = messages.emplace(vid, std::make_pair(std::unordered_set<uint64_t>(), std::unordered_set<uint64_t>())).first->second;
-                    {
-                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
-                        while (nbrs.Valid())
-                        {
-                            value.first.emplace(nbrs.NeighborId());
-                            nbrs.Next();
-                        }
-                    }
-                    {
-                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
-                        while (nbrs.Valid())
-                        {
-                            value.second.emplace(nbrs.NeighborId());
-                            nbrs.Next();
-                        }
-                    }
-                }
-            }
             double sum = 0;
             for(size_t i=1;i<path.size();i++)
             {
                 double weight = 0;
-                auto iter = weights.find(std::make_pair(path[i-1], path[i]));
-                if(iter == weights.end())
-                {
-                    auto left = messages.find(path[i-1]);
-                    auto right = messages.find(path[i]);
-                    for(auto comment_vid : left->second.second)
+//                auto iter = weights.find(std::make_pair(path[i-1], path[i]));
+//                if(iter == weights.end())
+//                {
+                    auto left = path[i-1];
+                    auto right = path[i];
                     {
-                        auto comment = (snb::MessageSchema::Message*)engine.GetVertex(comment_vid).Data();
-                        if(right->second.first.find(comment->replyOfPost) != right->second.first.end())
+                        auto nbrs = engine.GetNeighborhood(left, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
+                        while (nbrs.Valid())
                         {
-                            weight += 1.0;
-                        }
-                        else if(right->second.second.find(comment->replyOfComment) != right->second.second.end())
-                        {
-                            weight += 0.5;
+                            auto comment = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                            auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
+                            if(comment->replyCreator == right) weight += (rvid == comment->replyOfPost)?1.0:0.5;
+                            nbrs.Next();
                         }
                     }
-                    for(auto comment_vid : right->second.second)
                     {
-                        auto comment = (snb::MessageSchema::Message*)engine.GetVertex(comment_vid).Data();
-                        if(left->second.first.find(comment->replyOfPost) != left->second.first.end())
+                        auto nbrs = engine.GetNeighborhood(right, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
+                        while (nbrs.Valid())
                         {
-                            weight += 1.0;
-                        }
-                        else if(left->second.second.find(comment->replyOfComment) != left->second.second.end())
-                        {
-                            weight += 0.5;
+                            auto comment = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                            auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
+                            if(comment->replyCreator == left) weight += (rvid == comment->replyOfPost)?1.0:0.5;
+                            nbrs.Next();
                         }
                     }
-                    weights[std::make_pair(path[i-1], path[i])] = weight;
-                    weights[std::make_pair(path[i], path[i-1])] = weight;
-                }
-                else
-                {
-                    weight = iter->second;
-                }
+//                    weights[std::make_pair(path[i-1], path[i])] = weight;
+//                    weights[std::make_pair(path[i], path[i-1])] = weight;
+//                }
+//                else
+//                {
+//                    weight = iter->second;
+//                }
                 sum += weight;
             }
-            idx.emplace_back(-sum, pathidx); 
+            idx.push_back(std::make_pair(-sum, pathidx)); 
         }
         std::sort(idx.begin(), idx.end());
         for(auto p:idx)
@@ -2011,10 +1988,16 @@ int main(int argc, char** argv)
 
     {
         std::vector<std::thread> pool;
+        pool.emplace_back(importPost,     std::ref(postSchema),     dataPath, std::ref(personSchema), std::ref(forumSchema), std::ref(placeSchema));
+        for(auto &t:pool) t.join();
+    }
+
+    {
+        std::vector<std::thread> pool;
         pool.emplace_back(importPerson,   std::ref(personSchema),   dataPath, std::ref(placeSchema));
         pool.emplace_back(importPlace,    std::ref(placeSchema),    dataPath);
         pool.emplace_back(importOrg,      std::ref(orgSchema),      dataPath, std::ref(placeSchema));
-        pool.emplace_back(importPost,     std::ref(postSchema),     dataPath, std::ref(personSchema), std::ref(forumSchema), std::ref(placeSchema));
+//        pool.emplace_back(importPost,     std::ref(postSchema),     dataPath, std::ref(personSchema), std::ref(forumSchema), std::ref(placeSchema));
         pool.emplace_back(importComment,  std::ref(commentSchema),  dataPath, std::ref(personSchema), std::ref(placeSchema), std::ref(postSchema));
         pool.emplace_back(importTag,      std::ref(tagSchema),      dataPath, std::ref(tagclassSchema));
         pool.emplace_back(importTagClass, std::ref(tagclassSchema), dataPath);

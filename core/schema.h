@@ -318,6 +318,7 @@ namespace snb
             uint64_t place;
             uint64_t replyOfPost;
             uint64_t replyOfComment;
+            uint64_t replyCreator;
             uint16_t locationIP_offset;
             uint16_t browserUsed_offset;
             uint16_t language_offset;
@@ -372,7 +373,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createMessage(uint64_t id, std::string imageFile, uint64_t creationDate, std::string locationIP, std::string browserUsed, std::string language, std::string content, uint64_t creator, uint64_t forumid, uint64_t place, uint64_t replyOfPost, uint64_t replyOfComment, Message::Type type)
+        Buffer static createMessage(uint64_t id, std::string imageFile, uint64_t creationDate, std::string locationIP, std::string browserUsed, std::string language, std::string content, uint64_t creator, uint64_t forumid, uint64_t place, uint64_t replyOfPost, uint64_t replyOfComment, uint64_t replyCreator, Message::Type type)
         {
             size_t size = sizeof(Message);
             size += imageFile.length();
@@ -390,6 +391,7 @@ namespace snb
             message->place = place;
             message->replyOfPost = replyOfPost;
             message->replyOfComment = replyOfComment;
+            message->replyCreator = replyCreator;
             message->type = type;
 
             uint16_t offset = 0;
