@@ -589,7 +589,7 @@ namespace snb
         Place2Org,                 //imported
         //TagClass2TagClass_up,    //inlined
         TagClass2TagClass_down,    //imported
-        Person2Person,             //DateTime, imported
+        Person2Person,             //DateTime, double, imported
         Person2Post_like,          //DateTime, imported
         Post2Person_like,          //DateTime, imported
         Person2Comment_like,       //DateTime, imported

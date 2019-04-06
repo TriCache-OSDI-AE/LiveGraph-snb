@@ -538,6 +538,74 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
     }
 }
 
+void importKnows(std::string path)
+{
+    std::ifstream ifs_dataEdge(path);
+
+    std::vector<std::string> all_dataEdges;
+    for(std::string line;std::getline(ifs_dataEdge, line);) all_dataEdges.push_back(line);
+
+    std::vector<std::vector<std::string>> dataEdge_vs;
+    for(size_t i=1;i<all_dataEdges.size();i++)
+    {
+        dataEdge_vs.emplace_back(split(all_dataEdges[i], csv_split));
+    }
+    all_dataEdges.clear();
+    tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
+        return a[2] < b[2];
+    });
+
+    std::vector<double> dataEdge_weight(dataEdge_vs.size());
+    #pragma omp parallel for
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        if(graph->WorkerId() == -1) graph->AssignWorkerId();
+        auto engine = graph->BeginAnalytics();
+        auto &dataEdge_v = dataEdge_vs[i];
+        uint64_t left = personSchema.findId(std::stoull(dataEdge_v[0]));
+        uint64_t right = personSchema.findId(std::stoull(dataEdge_v[1]));
+        double weight = 0;
+        {
+            auto nbrs = engine.GetNeighborhood(left, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
+            while (nbrs.Valid())
+            {
+                auto comment = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
+                if(comment->replyCreator == right) weight += (rvid == comment->replyOfPost)?1.0:0.5;
+                nbrs.Next();
+            }
+
+        }
+        {
+            auto nbrs = engine.GetNeighborhood(right, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
+            while (nbrs.Valid())
+            {
+                auto comment = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
+                if(comment->replyCreator == left) weight += (rvid == comment->replyOfPost)?1.0:0.5;
+                nbrs.Next();
+            }
+        }
+        dataEdge_weight[i] = weight;
+    }
+
+    auto loader = graph->BeginBatchLoad();
+
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto &dataEdge_v = dataEdge_vs[i];
+        uint64_t x_vid = personSchema.findId(std::stoull(dataEdge_v[0]));
+        uint64_t y_vid = personSchema.findId(std::stoull(dataEdge_v[1]));
+        auto dateTime = from_time(dataEdge_v[2]);
+        snb::Buffer buf(sizeof(uint64_t)+sizeof(double));
+        *(uint64_t*)buf.data() = std::chrono::duration_cast<std::chrono::milliseconds>(dateTime.time_since_epoch()).count();
+        *(double*)(buf.data()+sizeof(uint64_t)) = dataEdge_weight[i];
+
+        loader.PutEdge(x_vid, (EdgeType)snb::EdgeSchema::Person2Person, y_vid, livegraph::Bytes(buf.data(), buf.size()));
+        loader.PutEdge(y_vid, (EdgeType)snb::EdgeSchema::Person2Person, x_vid, livegraph::Bytes(buf.data(), buf.size()));
+    }
+}
+
 bool static operator == (const livegraph::Bytes &a, const std::string &b)
 {
     if(a.Size() != b.size()) return false;
@@ -721,7 +789,7 @@ private:
         return -1;
     }
 
-    std::vector<std::vector<uint64_t>> pairwiseShortestPath_path(livegraph::Engine & txn, uint64_t vid_from, uint64_t vid_to, EdgeType etype, int max_hops = std::numeric_limits<int>::max()) 
+    std::vector<std::pair<double, std::vector<uint64_t>>> pairwiseShortestPath_path(livegraph::Engine & txn, uint64_t vid_from, uint64_t vid_to, EdgeType etype, int max_hops = std::numeric_limits<int>::max()) 
     {
         std::unordered_map<uint64_t, int> parent, child;
         std::vector<uint64_t> forward_q, backward_q;
@@ -730,7 +798,7 @@ private:
         forward_q.push_back(vid_from);
         backward_q.push_back(vid_to);
         int hops = 0, psp = max_hops, fhops = 0, bhops = 0;;
-        std::set<std::pair<uint64_t, uint64_t>> hits;
+        std::map<std::pair<uint64_t, uint64_t>, double> hits;
         while (hops++ < std::min(psp, max_hops)) 
         {
             std::vector<uint64_t> new_front;
@@ -744,9 +812,10 @@ private:
                     while (out_edges.Valid()) 
                     {
                         uint64_t dst = out_edges.NeighborId();
+                        double weight = *(double*)(out_edges.EdgeData().Data()+sizeof(uint64_t));
                         if (child.find(dst) != child.end()) 
                         {
-                            hits.emplace(vid, dst);
+                            hits.emplace(std::make_pair(vid, dst), weight);
                             psp = hops;
                         }
                         auto it = parent.find(dst);
@@ -770,9 +839,10 @@ private:
                     while (in_edges.Valid()) 
                     {
                         uint64_t src = in_edges.NeighborId();
+                        double weight = *(double*)(in_edges.EdgeData().Data()+sizeof(uint64_t));
                         if (parent.find(src) != parent.end()) 
                         {
-                            hits.emplace(src, vid);
+                            hits.emplace(std::make_pair(src, vid), weight);
                             psp = hops;
                         }
                         auto it = child.find(src);
@@ -789,12 +859,12 @@ private:
             }
         }
 
-        std::vector<std::vector<uint64_t>> paths;
+        std::vector<std::pair<double, std::vector<uint64_t>>> paths;
         for(auto p : hits)
         {
             std::vector<size_t> path;
-            std::vector<std::vector<uint64_t>> fpaths, bpaths;
-            std::function<void(uint64_t, int)> fdfs = [&](uint64_t vid, int deep)
+            std::vector<std::pair<double, std::vector<uint64_t>>> fpaths, bpaths;
+            std::function<void(uint64_t, int, double)> fdfs = [&](uint64_t vid, int deep, double weight)
             {
                 path.push_back(vid);
                 if(deep > 0)
@@ -806,7 +876,8 @@ private:
                         auto iter = parent.find(dst);
                         if(iter != parent.end() && iter->second == deep-1)
                         {
-                            fdfs(dst, deep-1);
+                            double w = *(double*)(out_edges.EdgeData().Data()+sizeof(uint64_t));
+                            fdfs(dst, deep-1, weight+w);
                         }
                         out_edges.Next();
                     }
@@ -814,12 +885,13 @@ private:
                 else
                 {
                     fpaths.emplace_back();
-                    std::reverse_copy(path.begin(), path.end(), std::back_inserter(fpaths.back()));
+                    fpaths.back().first = weight;
+                    std::reverse_copy(path.begin(), path.end(), std::back_inserter(fpaths.back().second));
                 }
                 path.pop_back();
             };
 
-            std::function<void(uint64_t, int)> bdfs = [&](uint64_t vid, int deep)
+            std::function<void(uint64_t, int, double)> bdfs = [&](uint64_t vid, int deep, double weight)
             {
                 path.push_back(vid);
                 if(deep > 0)
@@ -831,26 +903,27 @@ private:
                         auto iter = child.find(dst);
                         if(iter != child.end() && iter->second == deep-1)
                         {
-                            bdfs(dst, deep-1);
+                            double w = *(double*)(out_edges.EdgeData().Data()+sizeof(uint64_t));
+                            bdfs(dst, deep-1, weight+w);
                         }
                         out_edges.Next();
                     }
                 }
                 else
                 {
-                    bpaths.emplace_back(path);
+                    bpaths.emplace_back(weight, path);
                 }
                 path.pop_back();
             };
 
-            fdfs(p.first, parent[p.first]);
-            bdfs(p.second, child[p.second]);
+            fdfs(p.first.first, parent[p.first.first], 0.0);
+            bdfs(p.first.second, child[p.first.second], 0.0);
             for(auto &f: fpaths)
             {
                 for(auto &b: bpaths)
                 {
-                    paths.emplace_back(f);
-                    std::copy(b.begin(), b.end(), std::back_inserter(paths.back()));
+                    paths.emplace_back(f.first+b.first+p.second, f.second);
+                    std::copy(b.second.begin(), b.second.end(), std::back_inserter(paths.back().second));
                 }
             }
         }
@@ -1845,59 +1918,15 @@ public:
         if(vid2 == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
         auto paths = pairwiseShortestPath_path(engine, vid1, vid2, (EdgeType)snb::EdgeSchema::Person2Person);
-        std::map<std::pair<uint64_t, uint64_t>, double> weights;
-        tbb::concurrent_vector<std::pair<double, size_t>> idx;
-        
-//        #pragma omp parallel for
-        for(size_t pathidx=0;pathidx<paths.size();pathidx++)
+        std::sort(paths.begin(), paths.end(), [](const std::pair<double, std::vector<uint64_t>> &a, const std::pair<double, std::vector<uint64_t>> &b)
         {
-            auto &path = paths[pathidx];
-            double sum = 0;
-            for(size_t i=1;i<path.size();i++)
-            {
-                double weight = 0;
-//                auto iter = weights.find(std::make_pair(path[i-1], path[i]));
-//                if(iter == weights.end())
-//                {
-                    auto left = path[i-1];
-                    auto right = path[i];
-                    {
-                        auto nbrs = engine.GetNeighborhood(left, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
-                        while (nbrs.Valid())
-                        {
-                            auto comment = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
-                            auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
-                            if(comment->replyCreator == right) weight += (rvid == comment->replyOfPost)?1.0:0.5;
-                            nbrs.Next();
-                        }
-                    }
-                    {
-                        auto nbrs = engine.GetNeighborhood(right, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
-                        while (nbrs.Valid())
-                        {
-                            auto comment = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
-                            auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
-                            if(comment->replyCreator == left) weight += (rvid == comment->replyOfPost)?1.0:0.5;
-                            nbrs.Next();
-                        }
-                    }
-//                    weights[std::make_pair(path[i-1], path[i])] = weight;
-//                    weights[std::make_pair(path[i], path[i-1])] = weight;
-//                }
-//                else
-//                {
-//                    weight = iter->second;
-//                }
-                sum += weight;
-            }
-            idx.push_back(std::make_pair(-sum, pathidx)); 
-        }
-        std::sort(idx.begin(), idx.end());
-        for(auto p:idx)
+            return a.first > b.first;
+        });
+        for(auto p:paths)
         {
             _return.emplace_back();
-            _return.back().pathWeight = -p.first;
-            for(auto vid:paths[p.second])
+            _return.back().pathWeight = p.first;
+            for(auto vid:p.second)
             {
                 _return.back().personIdsInPath.emplace_back(personSchema.rfindId(vid));
             }
@@ -2007,6 +2036,10 @@ int main(int argc, char** argv)
         pool.emplace_back(importRawEdge, std::ref(postSchema),    std::ref(tagSchema), snb::EdgeSchema::Post2Tag,    snb::EdgeSchema::Tag2Post,    dataPath+snb::postHasTagPathSuffix);
         pool.emplace_back(importRawEdge, std::ref(commentSchema), std::ref(tagSchema), snb::EdgeSchema::Comment2Tag, snb::EdgeSchema::Tag2Comment, dataPath+snb::commentHasTagPathSuffix);
         pool.emplace_back(importRawEdge, std::ref(forumSchema),   std::ref(tagSchema), snb::EdgeSchema::Forum2Tag,   snb::EdgeSchema::Tag2Forum,   dataPath+snb::forumHasTagPathSuffix);
+        for(auto &t:pool) t.join();
+    }
+    {
+        std::vector<std::thread> pool;
 
         auto DateTimeParser = [](std::string str)
         {
@@ -2027,8 +2060,8 @@ int main(int argc, char** argv)
                 dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(forumSchema),  std::ref(personSchema),  snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
                 dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
-        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
-                dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, true);
+//        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
+//                dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(postSchema),    snb::EdgeSchema::Person2Post_like,    snb::EdgeSchema::Post2Person_like, 
                 dataPath+snb::personLikePostPathSuffix, DateTimeParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(commentSchema), snb::EdgeSchema::Person2Comment_like, snb::EdgeSchema::Comment2Person_like, 
@@ -2037,6 +2070,7 @@ int main(int argc, char** argv)
                 dataPath+snb::personStudyAtOrgPathSuffix, YearParser, true);
         pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_work,     snb::EdgeSchema::Org2Person_work, 
                 dataPath+snb::personWorkAtOrgPathSuffix, YearParser, true);
+        pool.emplace_back(importKnows, dataPath+snb::personKnowsPersonPathSuffix);
         for(auto &t:pool) t.join();
     }
 
