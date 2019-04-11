@@ -1382,27 +1382,18 @@ public:
         if(tagId == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
         auto friends = multihop(engine, vid, 2, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
+        friends.push_back(std::numeric_limits<uint64_t>::max());
         tbb::concurrent_hash_map<uint64_t, int> idx;
-//        #pragma omp parallel for
-        for(size_t i=0;i<friends.size();i++)
         {
-            uint64_t vid = friends[i];
+            uint64_t vid = tagId;
             {
-                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
+                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Tag2Post);
                 while (nbrs.Valid())
                 {
-                    uint64_t vid = nbrs.NeighborId();
-                    bool hit = false;
+                    auto message = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                    if(*std::lower_bound(friends.begin(), friends.end(), message->creator) == message->creator)
                     {
-                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
-                        while (nbrs.Valid() && !hit)
-                        {
-                            if(nbrs.NeighborId() == tagId) hit = true;
-                            nbrs.Next();
-                        }
-                    }
-                    if(hit)
-                    {
+                        uint64_t vid = nbrs.NeighborId();
                         auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
                         while (nbrs.Valid())
                         {
@@ -1419,6 +1410,42 @@ public:
                 }
             }
         }
+//        #pragma omp parallel for
+//        for(size_t i=0;i<friends.size();i++)
+//        {
+//            uint64_t vid = friends[i];
+//            {
+//                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
+//                while (nbrs.Valid())
+//                {
+//                    uint64_t vid = nbrs.NeighborId();
+//                    bool hit = false;
+//                    {
+//                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
+//                        while (nbrs.Valid() && !hit)
+//                        {
+//                            if(nbrs.NeighborId() == tagId) hit = true;
+//                            nbrs.Next();
+//                        }
+//                    }
+//                    if(hit)
+//                    {
+//                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
+//                        while (nbrs.Valid())
+//                        {
+//                            if(nbrs.NeighborId() != tagId)
+//                            {
+//                                tbb::concurrent_hash_map<uint64_t, int>::accessor a;
+//                                idx.insert(a, nbrs.NeighborId());
+//                                a->second ++;
+//                            }
+//                            nbrs.Next();
+//                        }
+//                    }
+//                    nbrs.Next();
+//                }
+//            }
+//        }
         std::set<std::pair<int, std::string>> idx_by_count;
         for(auto i=idx.begin();i!=idx.end();i++)
         {
