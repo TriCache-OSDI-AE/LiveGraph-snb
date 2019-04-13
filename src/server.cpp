@@ -13,6 +13,7 @@
 #include "core/schema.h" 
 #include "core/import.h"
 #include "LiveGraph/core/graph.hpp"
+#include "date/include/date/tz.h"
 
 #include "Interactive.h"
 #include <thrift/transport/TSocket.h>
@@ -80,10 +81,11 @@ uint64_t static inline to_time(uint32_t date)
 std::pair<int, int> static inline to_monday(uint64_t date)
 {
     auto tp = std::chrono::system_clock::time_point(std::chrono::hours(date));
-    time_t tt = std::chrono::system_clock::to_time_t(tp);
-    // not thread-safe
-    tm utc_tm = *gmtime(&tt);
-    return std::make_pair(utc_tm.tm_mon+1, utc_tm.tm_mday);
+    auto dp = date::floor<date::days>(tp);
+    auto ymd = date::year_month_day(dp);
+    int month = (unsigned)ymd.month();
+    int day = (unsigned)ymd.day();
+    return std::make_pair(month, day);
 }
 
 const static char csv_split('|');
@@ -1206,7 +1208,7 @@ public:
                 }
 //                auto key = std::make_pair(-xCount, person->id);
 //                auto value = std::make_pair(-yCount, person);
-////                #pragma omp critical
+//                #pragma omp critical
 //                if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
 //                {
 //                    idx.emplace(key, value);
@@ -1891,7 +1893,7 @@ public:
 //                    {
 //                        auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
 //                        auto value = vid;
-////                        #pragma omp critical
+//                        #pragma omp critical
 //                        if(idx.size() < (size_t)request.limit || idx.rbegin()->first < key)
 //                        {
 //                            idx.emplace(key, value);

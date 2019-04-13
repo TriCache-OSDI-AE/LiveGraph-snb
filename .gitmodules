@@ -1,3 +1,6 @@
 [submodule "deps/LiveGraph"]
 	path = deps/LiveGraph
 	url = git@github.com:coolerzxw/LiveGraph.git
+[submodule "deps/date"]
+	path = deps/date
+	url = https://github.com/HowardHinnant/date.git
