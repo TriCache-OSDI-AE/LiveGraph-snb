@@ -668,42 +668,6 @@ bool static operator == (const livegraph::Bytes &a, const std::string &b)
 class InteractiveHandler : virtual public InteractiveIf
 {
 private:
-    std::vector<std::pair<int, uint64_t>> multihop_dis(livegraph::Engine &txn, uint64_t root, int num_hops, std::vector<EdgeType> etypes)
-    {
-        std::vector<size_t> frontier = {root};
-        std::vector<size_t> next_frontier;
-        std::unordered_set<uint64_t> idx;
-        std::vector<std::pair<int, uint64_t>> collect;
-
-        //TODO: parallel
-        for (int k=0;k<num_hops;k++)
-        {
-            next_frontier.clear();
-            for (auto vid : frontier)
-            {
-                auto nbrs = txn.GetNeighborhood(vid, etypes[k]);
-                while (nbrs.Valid())
-                {
-                    if(nbrs.NeighborId() != root)
-                    {
-                        next_frontier.push_back(nbrs.NeighborId());
-                        if(idx.find(nbrs.NeighborId()) == idx.end())
-                        {
-                            idx.emplace(nbrs.NeighborId());
-                            collect.emplace_back(k, nbrs.NeighborId());
-                        }
-                    }
-                    nbrs.Next();
-                }
-            }
-            frontier.swap(next_frontier);
-        }
-
-        std::sort(collect.begin(), collect.end());
-//        tbb::parallel_sort(collect.begin(), collect.end());
-        return collect;
-    }
-
     std::vector<uint64_t> multihop(livegraph::Engine &txn, uint64_t root, int num_hops, std::vector<EdgeType> etypes)
     {
         std::vector<size_t> frontier = {root};
@@ -994,20 +958,39 @@ public:
         uint64_t vid = personSchema.findId(request.personId);
         if(vid == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
-        auto friends = multihop_dis(engine, vid, 3, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
-        tbb::concurrent_vector<std::tuple<int, livegraph::Bytes, uint64_t, uint64_t, snb::PersonSchema::Person*>> idx;
+        std::vector<std::tuple<int, livegraph::Bytes, uint64_t, uint64_t, snb::PersonSchema::Person*>> idx;
 
-//        #pragma omp parallel for
-        for(size_t i=0;i<friends.size();i++)
+        std::vector<size_t> frontier = {vid};
+        std::vector<size_t> next_frontier;
+        std::unordered_set<uint64_t> person_hash{vid};
+        uint64_t root = vid;
+
+        for (int k=0;k<3 && idx.size()<(size_t)request.limit;k++)
         {
-            auto person = (snb::PersonSchema::Person*)engine.GetVertex(friends[i].second).Data();
-            auto firstName = livegraph::Bytes(person->firstName(), person->firstNameLen());
-            if(firstName == request.firstName)
+            next_frontier.clear();
+            for (auto vid : frontier)
             {
-                auto lastName = livegraph::Bytes(person->lastName(), person->lastNameLen());
-                idx.push_back(std::make_tuple(friends[i].first, lastName, person->id, friends[i].second, person));
+                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Person);
+                while (nbrs.Valid())
+                {
+                    if(nbrs.NeighborId() != root && person_hash.find(nbrs.NeighborId()) == person_hash.end())
+                    {
+                        next_frontier.push_back(nbrs.NeighborId());
+                        person_hash.emplace(nbrs.NeighborId());
+                        auto person = (snb::PersonSchema::Person*)engine.GetVertex(nbrs.NeighborId()).Data();
+                        auto firstName = livegraph::Bytes(person->firstName(), person->firstNameLen());
+                        if(firstName == request.firstName)
+                        {
+                            auto lastName = livegraph::Bytes(person->lastName(), person->lastNameLen());
+                            idx.push_back(std::make_tuple(k, lastName, person->id, nbrs.NeighborId(), person));
+                        }
+                    }
+                    nbrs.Next();
+                }
             }
+            frontier.swap(next_frontier);
         }
+
         std::sort(idx.begin(), idx.end());
 //        tbb::parallel_sort(idx.begin(), idx.end());
 //        std::cout << request.personId << " " << request.firstName << " " << friends.size() << " " << idx.size() << std::endl;
@@ -1108,7 +1091,7 @@ public:
                         value.personId = person->id;
                         value.messageCreationDate = message->creationDate;
                         value.messageId = message->id;
-                        #pragma omp critical
+//                        #pragma omp critical
                         {
                             if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                             {
@@ -1141,7 +1124,7 @@ public:
                         value.personId = person->id;
                         value.messageCreationDate = message->creationDate;
                         value.messageId = message->id;
-                        #pragma omp critical
+//                        #pragma omp critical
                         {
                             if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                             {
@@ -1223,7 +1206,7 @@ public:
                 }
 //                auto key = std::make_pair(-xCount, person->id);
 //                auto value = std::make_pair(-yCount, person);
-//                #pragma omp critical
+////                #pragma omp critical
 //                if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
 //                {
 //                    idx.emplace(key, value);
@@ -1494,7 +1477,7 @@ public:
                     auto key = std::make_pair(-date, person_id);
                     auto value = std::make_tuple(nbrs.NeighborId(), vid);
                     std::unordered_map<uint64_t, std::pair<int64_t, uint64_t>>::iterator iter;
-                    #pragma omp critical
+//                    #pragma omp critical
                     if((idx.size() < (size_t)request.limit || idx.rbegin()->first > key) && ((iter=person_hash.find(person_id)) == person_hash.end() || iter->second > key))
                     {
                         idx.emplace(key, value);
@@ -1538,7 +1521,7 @@ public:
                     auto key = std::make_pair(-date, person_id);
                     auto value = std::make_tuple(nbrs.NeighborId(), vid);
                     std::unordered_map<uint64_t, std::pair<int64_t, uint64_t>>::iterator iter;
-                    #pragma omp critical
+//                    #pragma omp critical
                     if((idx.size() < (size_t)request.limit || idx.rbegin()->first > key) && ((iter=person_hash.find(person_id)) == person_hash.end() || iter->second > key))
                     {
                         idx.emplace(key, value);
@@ -1610,7 +1593,7 @@ public:
                     auto message = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
                     auto key = std::make_pair(-date, message->id);
                     auto value = message;
-                    #pragma omp critical
+//                    #pragma omp critical
                     if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                     {
                         idx.emplace(key, value);
@@ -1639,7 +1622,7 @@ public:
                     auto key = std::make_pair(-date, message->id);
                     auto value = message;
                     std::unordered_map<uint64_t, std::pair<int64_t, uint64_t>>::iterator iter;
-                    #pragma omp critical
+//                    #pragma omp critical
                     if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                     {
                         idx.emplace(key, value);
@@ -1695,7 +1678,7 @@ public:
                         auto message = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
                         auto key = std::make_pair(-date, message->id);
                         auto value = message;
-                        #pragma omp critical
+//                        #pragma omp critical
                         if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                         {
                             idx.emplace(key, value);
@@ -1721,7 +1704,7 @@ public:
                         auto message = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
                         auto key = std::make_pair(-date, message->id);
                         auto value = message;
-                        #pragma omp critical
+//                        #pragma omp critical
                         if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                         {
                             idx.emplace(key, value);
@@ -1760,19 +1743,43 @@ public:
         uint64_t vid = personSchema.findId(request.personId);
         if(vid == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
-        auto friends = multihop_dis(engine, vid, 2, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
-        size_t offset = std::lower_bound(friends.begin(), friends.end(), std::make_pair(1, 0lu)) - friends.begin();
+
+        std::vector<size_t> frontier = {vid};
+        std::vector<size_t> next_frontier;
+        std::unordered_set<uint64_t> person_hash{vid};
+        uint64_t root = vid;
+        for (int k=0;k<2;k++)
+        {
+            next_frontier.clear();
+            for (auto vid : frontier)
+            {
+                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Person);
+                while (nbrs.Valid())
+                {
+                    if(nbrs.NeighborId() != root && person_hash.find(nbrs.NeighborId()) == person_hash.end())
+                    {
+                        next_frontier.push_back(nbrs.NeighborId());
+                        person_hash.emplace(nbrs.NeighborId());
+                    }
+                    nbrs.Next();
+                }
+            }
+            frontier.swap(next_frontier);
+        }
+        auto friends = frontier;
+        std::sort(friends.begin(), friends.end());
+
         auto tags = multihop(engine, vid, 1, {(EdgeType)snb::EdgeSchema::Person2Tag});
         auto nextMonth = request.month%12 + 1;
         tags.push_back(std::numeric_limits<uint64_t>::max());
         std::map<std::pair<int, uint64_t>, snb::PersonSchema::Person*> idx;
 //        #pragma omp parallel for
-        for(size_t i=offset;i<friends.size();i++)
+        for(size_t i=0;i<friends.size();i++)
         {
-            uint64_t vid = friends[i].second;
+            uint64_t vid = friends[i];
             auto person = (snb::PersonSchema::Person*)(engine.GetVertex(vid)).Data();
             std::pair<int, int> monday;
-            #pragma omp critical
+//            #pragma omp critical
             {
                 monday = to_monday(person->birthday);
             }
@@ -1801,7 +1808,7 @@ public:
                 }
                 auto key = std::make_pair(-commonInterestScore, person->id);
                 auto value = person;
-                #pragma omp critical
+//                #pragma omp critical
                 if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                 {
                     idx.emplace(key, value);
@@ -1855,7 +1862,7 @@ public:
                         auto person_id = personSchema.rfindId(person_vid);
                         auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
                         auto value = person_vid;
-                        #pragma omp critical
+//                        #pragma omp critical
                         if(idx.size() < (size_t)request.limit || idx.rbegin()->first < key)
                         {
                             idx.emplace(key, value);
@@ -1884,7 +1891,7 @@ public:
 //                    {
 //                        auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
 //                        auto value = vid;
-//                        #pragma omp critical
+////                        #pragma omp critical
 //                        if(idx.size() < (size_t)request.limit || idx.rbegin()->first < key)
 //                        {
 //                            idx.emplace(key, value);
@@ -1964,7 +1971,7 @@ public:
                 std::vector<uint64_t> tagV;
                 for(auto p: tagSet) tagV.push_back(p);
                 auto value = std::make_pair(vid, tagV);
-                #pragma omp critical
+//                #pragma omp critical
                 if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                 {
                     idx.emplace(key, value);
