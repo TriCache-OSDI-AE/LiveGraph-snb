@@ -1834,35 +1834,32 @@ public:
         if(country == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
         auto friends = multihop(engine, vid, 2, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
+        friends.push_back(std::numeric_limits<uint64_t>::max());
+        auto orgs = multihop(engine, country, 1, {(EdgeType)snb::EdgeSchema::Place2Org});
 
         std::map<std::tuple<int, int64_t, std::string>, uint64_t, std::greater<std::tuple<int, int64_t, std::string>>> idx;
 //        #pragma omp parallel for
-        for(size_t i=0;i<friends.size();i++)
+        for(size_t i=0;i<orgs.size();i++)
         {
-            uint64_t vid = friends[i];
-            auto person_id = personSchema.rfindId(vid);
-            auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_work);
-            bool flag = true;
-            while (nbrs.Valid() && flag)
+            uint64_t vid = orgs[i];
+            auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Org2Person_work);
+            auto org = (snb::OrgSchema::Org*)engine.GetVertex(vid).Data();
+            while (nbrs.Valid())
             {
                 int32_t date = *(uint32_t*)nbrs.EdgeData().Data();
                 if(date < request.workFromYear)
                 {
-                    auto org = (snb::OrgSchema::Org*)engine.GetVertex(nbrs.NeighborId()).Data();
-                    if(org->place == country)
+                    auto person_vid = nbrs.NeighborId();
+                    if(*std::lower_bound(friends.begin(), friends.end(), person_vid) == person_vid)
                     {
+                        auto person_id = personSchema.rfindId(person_vid);
                         auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
-                        auto value = vid;
+                        auto value = person_vid;
                         #pragma omp critical
                         if(idx.size() < (size_t)request.limit || idx.rbegin()->first < key)
                         {
                             idx.emplace(key, value);
                             while(idx.size() > (size_t)request.limit) idx.erase(idx.rbegin()->first);
-                            flag = true;
-                        }
-                        else
-                        {
-                            flag = std::get<0>(idx.rbegin()->first) < std::get<0>(key) || (std::get<0>(idx.rbegin()->first) == std::get<0>(key) && std::get<1>(idx.rbegin()->first) < std::get<1>(key));
                         }
                     }
 
@@ -1870,6 +1867,40 @@ public:
                 nbrs.Next();
             }
         }
+//        #pragma omp parallel for
+//        for(size_t i=0;i<friends.size();i++)
+//        {
+//            uint64_t vid = friends[i];
+//            auto person_id = personSchema.rfindId(vid);
+//            auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_work);
+//            bool flag = true;
+//            while (nbrs.Valid() && flag)
+//            {
+//                int32_t date = *(uint32_t*)nbrs.EdgeData().Data();
+//                if(date < request.workFromYear)
+//                {
+//                    auto org = (snb::OrgSchema::Org*)engine.GetVertex(nbrs.NeighborId()).Data();
+//                    if(org->place == country)
+//                    {
+//                        auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
+//                        auto value = vid;
+//                        #pragma omp critical
+//                        if(idx.size() < (size_t)request.limit || idx.rbegin()->first < key)
+//                        {
+//                            idx.emplace(key, value);
+//                            while(idx.size() > (size_t)request.limit) idx.erase(idx.rbegin()->first);
+//                            flag = true;
+//                        }
+//                        else
+//                        {
+//                            flag = std::get<0>(idx.rbegin()->first) < std::get<0>(key) || (std::get<0>(idx.rbegin()->first) == std::get<0>(key) && std::get<1>(idx.rbegin()->first) < std::get<1>(key));
+//                        }
+//                    }
+//
+//                }
+//                nbrs.Next();
+//            }
+//        }
 
         for(auto p : idx)
         {
