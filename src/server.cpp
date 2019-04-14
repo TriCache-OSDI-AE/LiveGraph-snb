@@ -32,6 +32,7 @@ using namespace ::apache::thrift::transport;
 using namespace ::apache::thrift::server;
 using namespace ::interactive;
 
+#define compiler_fence() asm volatile(""::: "memory")
 livegraph::Graph *graph = nullptr;
 TServerFramework *server = nullptr;
 snb::PersonSchema personSchema;
@@ -104,8 +105,8 @@ void prepareVIndex(snb::Schema &schema, std::string path)
             continue;
         }
         auto v = split(line, csv_split);
-        size_t id = std::stoul(v[0]);
-        size_t vid = loader.AddVertex();
+        uint64_t id = std::stoul(v[0]);
+        uint64_t vid = loader.AddVertex();
         schema.insertId(id, vid);
     } 
 }
@@ -1978,8 +1979,8 @@ public:
         uint64_t vid = personSchema.findId(request.personId);
         if(vid == (uint64_t)-1) return;
         auto txn = graph->BeginAnalytics();
-        auto bytes = txn.GetVertex(personSchema.findId(request.personId));
-        auto person = (snb::PersonSchema::Person*)bytes.Data();
+        auto person = (snb::PersonSchema::Person*)txn.GetVertex(vid).Data();
+        if(!person) return;
         _return.firstName = std::string(person->firstName(), person->firstNameLen());
         _return.lastName = std::string(person->lastName(), person->lastNameLen());
         _return.birthday = to_time(person->birthday);
@@ -1989,6 +1990,64 @@ public:
         _return.cityId = place->id;
         _return.gender = std::string(person->gender(), person->genderLen());
         _return.creationDate = person->creationDate;
+    }
+
+    void update1(const interactive::Update1Request& request)
+    {
+        if(graph->WorkerId() == -1) graph->AssignWorkerId();
+        uint64_t vid = (uint64_t)-1;
+        uint64_t place_vid = placeSchema.findId(request.cityId);
+        auto birthday = std::chrono::system_clock::time_point(std::chrono::milliseconds(request.birthday));
+        auto person_buf = snb::PersonSchema::createPerson(request.personId, request.personFirstName, request.personLastName, request.gender,  
+                std::chrono::duration_cast<std::chrono::hours>(birthday.time_since_epoch()).count(), 
+                request.emails, request.languages, request.browserUsed, request.locationIp,
+                request.creationDate, place_vid);
+        std::vector<uint64_t> tag_vid, study_vid, work_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        for(auto org:request.studyAt_id) study_vid.emplace_back(orgSchema.findId(org));
+        for(auto org:request.workAt_id) work_vid.emplace_back(orgSchema.findId(org));
+        while(true)
+        {
+            auto txn = graph->BeginTransaction();
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.AddVertex();
+                    personSchema.insertId(request.personId, vid);
+                }
+                txn.PutVertex(vid, livegraph::Bytes(person_buf.data(), person_buf.size()));
+                txn.PutEdge(place_vid, (EdgeType)snb::EdgeSchema::Place2Person, vid, livegraph::Bytes());
+                for(auto tag:tag_vid)
+                {
+                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Person2Tag, tag, livegraph::Bytes());
+                    txn.PutEdge(tag, (EdgeType)snb::EdgeSchema::Tag2Person, vid, livegraph::Bytes());
+                }
+                for(auto tag:tag_vid)
+                {
+                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Person2Tag, tag, livegraph::Bytes());
+                    txn.PutEdge(tag, (EdgeType)snb::EdgeSchema::Tag2Person, vid, livegraph::Bytes());
+                }
+                for(size_t i=0;i<study_vid.size();i++)
+                {
+                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Person2Org_study, study_vid[i], livegraph::Bytes((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])));
+                    txn.PutEdge(study_vid[i], (EdgeType)snb::EdgeSchema::Org2Person_study, study_vid[i], livegraph::Bytes((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])));
+                }
+                for(size_t i=0;i<work_vid.size();i++)
+                {
+                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Person2Org_work, work_vid[i], livegraph::Bytes((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])));
+                    txn.PutEdge(work_vid[i], (EdgeType)snb::EdgeSchema::Org2Person_work, work_vid[i], livegraph::Bytes((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])));
+                }
+                auto epoch = txn.Commit();
+                while(graph->EpochId() != epoch) compiler_fence();
+                break;
+            } 
+            catch (const char * msg) 
+            {
+                txn.Abort();
+            }
+
+        }
     }
 
 };
