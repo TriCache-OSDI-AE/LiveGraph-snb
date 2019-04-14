@@ -31,6 +31,7 @@ add_definitions(${THRIFT_CFLAGS_OTHER})
 
 set(THRIFT_GEN_PATH ${CMAKE_BINARY_DIR}/gen-cpp)
 set(THRIFT_CODE_PATH ${CMAKE_SOURCE_DIR}/thrift)
+set(ROCKSDB_CODE_PATH ${CMAKE_SOURCE_DIR}/deps/rocksdb)
 add_custom_command(
 OUTPUT
     ${THRIFT_GEN_PATH}/interactive_constants.cpp
@@ -55,9 +56,20 @@ if(NOT CMAKE_BUILD_TYPE)
       "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif(NOT CMAKE_BUILD_TYPE)
 
+include(ExternalProject)
+ExternalProject_Add(
+    rocksdblib
+    SOURCE_DIR ${ROCKSDB_CODE_PATH}
+    INSTALL_DIR ${PROJECT_BINARY_DIR}
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -DWITH_TESTS=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_SNAPPY=ON -DWITH_ZSTD=ON
+)
+
+include_directories(${PROJECT_BINARY_DIR}/include)
+link_directories(${PROJECT_BINARY_DIR}/lib)
 set(PROJECT_DEPS_DIR ${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
 add_executable(snb_server src/server.cpp ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
 
-target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} ${THRIFT_LIBRARIES})
+target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} ${THRIFT_LIBRARIES} rocksdb.a snappy.a zstd.a)
+add_dependencies(snb_server rocksdblib)

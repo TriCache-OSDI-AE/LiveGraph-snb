@@ -34,7 +34,6 @@ using namespace ::interactive;
 
 livegraph::Graph *graph = nullptr;
 TServerFramework *server = nullptr;
-bool running = true;
 snb::PersonSchema personSchema;
 snb::PlaceSchema placeSchema;
 snb::OrgSchema orgSchema;
@@ -1087,8 +1086,8 @@ public:
                     int64_t date = *(uint64_t*)nbrs.EdgeData().Data();
                     if(date <= request.maxDate)
                     {
-                        auto key = std::make_pair(-date, postSchema.rfindId(nbrs.NeighborId()));
                         auto message = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                        auto key = std::make_pair(-date, message->id);
                         auto value = Query2Response();
                         value.personId = person->id;
                         value.messageCreationDate = message->creationDate;
@@ -1120,8 +1119,8 @@ public:
                     int64_t date = *(uint64_t*)nbrs.EdgeData().Data();
                     if(date <= request.maxDate)
                     {
-                        auto key = std::make_pair(-date, commentSchema.rfindId(nbrs.NeighborId()));
                         auto message = (snb::MessageSchema::Message*)engine.GetVertex(nbrs.NeighborId()).Data();
+                        auto key = std::make_pair(-date, message->id);
                         auto value = Query2Response();
                         value.personId = person->id;
                         value.messageCreationDate = message->creationDate;
@@ -1164,7 +1163,7 @@ public:
         uint64_t endDate = request.startDate + 24lu*60lu*60lu*1000lu*request.durationDays;
         auto engine = graph->BeginAnalytics();
         auto friends = multihop(engine, vid, 2, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
-        tbb::concurrent_vector<std::tuple<int, uint64_t, int, snb::PersonSchema::Person*>> idx;
+        std::vector<std::tuple<int, uint64_t, int, snb::PersonSchema::Person*>> idx;
 //        std::map<std::pair<int, uint64_t>, std::pair<int, snb::PersonSchema::Person*>> idx;
 
 //        #pragma omp parallel for
@@ -1256,7 +1255,7 @@ public:
         uint64_t endDate = request.startDate + 24lu*60lu*60lu*1000lu*request.durationDays;
         auto engine = graph->BeginAnalytics();
         auto friends = multihop(engine, vid, 1, {(EdgeType)snb::EdgeSchema::Person2Person});
-        tbb::concurrent_hash_map<uint64_t, std::pair<uint64_t, int>> idx;
+        std::unordered_map<uint64_t, std::pair<uint64_t, int>> idx;
 
 //        #pragma omp parallel for
         for(size_t i=0;i<friends.size();i++)
@@ -1274,17 +1273,15 @@ public:
                         auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
                         while (nbrs.Valid())
                         {
-                            tbb::concurrent_hash_map<uint64_t, std::pair<uint64_t, int>>::accessor a;
-                            bool isnew = idx.insert(a, nbrs.NeighborId());
-                            if(isnew)
+                            auto iter = idx.find(nbrs.NeighborId());
+                            if(iter == idx.end())
                             {
-                                a->second.first = message->creationDate;
-                                a->second.second = 1;
+                                idx.emplace(nbrs.NeighborId(), std::make_pair(message->creationDate, 1));
                             }
                             else
                             {
-                                a->second.first = std::min(message->creationDate, a->second.first);
-                                a->second.second++;
+                                iter->second.first = std::min(message->creationDate, iter->second.first);
+                                iter->second.second++;
                             }
                             nbrs.Next();
                         }
@@ -1321,7 +1318,7 @@ public:
         if(vid == (uint64_t)-1) return;
         auto engine = graph->BeginAnalytics();
         auto friends = multihop(engine, vid, 2, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
-        tbb::concurrent_hash_map<uint64_t, int> idx;
+        std::unordered_map<uint64_t, int> idx;
 //        #pragma omp parallel for
         for(size_t i=0;i<friends.size();i++)
         {
@@ -1331,9 +1328,7 @@ public:
                 while (nbrs.Valid() && *(uint64_t*)nbrs.EdgeData().Data()>(uint64_t)request.minDate)
                 {
                     uint64_t posts = *(uint64_t*)(nbrs.EdgeData().Data()+sizeof(uint64_t));
-                    tbb::concurrent_hash_map<uint64_t, int>::accessor a;
-                    idx.insert(a, nbrs.NeighborId());
-                    a->second += posts;
+                    idx[nbrs.NeighborId()] += posts;
                     nbrs.Next();
                 }
             }
@@ -1368,7 +1363,7 @@ public:
         auto engine = graph->BeginAnalytics();
         auto friends = multihop(engine, vid, 2, {(EdgeType)snb::EdgeSchema::Person2Person, (EdgeType)snb::EdgeSchema::Person2Person});
         friends.push_back(std::numeric_limits<uint64_t>::max());
-        tbb::concurrent_hash_map<uint64_t, int> idx;
+        std::unordered_map<uint64_t, int> idx;
         {
             uint64_t vid = tagId;
             {
@@ -1384,9 +1379,7 @@ public:
                         {
                             if(nbrs.NeighborId() != tagId)
                             {
-                                tbb::concurrent_hash_map<uint64_t, int>::accessor a;
-                                idx.insert(a, nbrs.NeighborId());
-                                a->second ++;
+                                idx[nbrs.NeighborId()]++;
                             }
                             nbrs.Next();
                         }
@@ -1395,42 +1388,6 @@ public:
                 }
             }
         }
-//        #pragma omp parallel for
-//        for(size_t i=0;i<friends.size();i++)
-//        {
-//            uint64_t vid = friends[i];
-//            {
-//                auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
-//                while (nbrs.Valid())
-//                {
-//                    uint64_t vid = nbrs.NeighborId();
-//                    bool hit = false;
-//                    {
-//                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
-//                        while (nbrs.Valid() && !hit)
-//                        {
-//                            if(nbrs.NeighborId() == tagId) hit = true;
-//                            nbrs.Next();
-//                        }
-//                    }
-//                    if(hit)
-//                    {
-//                        auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Post2Tag);
-//                        while (nbrs.Valid())
-//                        {
-//                            if(nbrs.NeighborId() != tagId)
-//                            {
-//                                tbb::concurrent_hash_map<uint64_t, int>::accessor a;
-//                                idx.insert(a, nbrs.NeighborId());
-//                                a->second ++;
-//                            }
-//                            nbrs.Next();
-//                        }
-//                    }
-//                    nbrs.Next();
-//                }
-//            }
-//        }
         std::set<std::pair<int, std::string>> idx_by_count;
         for(auto i=idx.begin();i!=idx.end();i++)
         {
@@ -1474,8 +1431,8 @@ public:
                 while (nbrs.Valid() && flag)
                 {
                     int64_t date = *(uint64_t*)nbrs.EdgeData().Data();
-//                    auto person = (snb::PersonSchema::Person*)engine.GetVertex(nbrs.NeighborId()).Data();
-                    uint64_t person_id = personSchema.rfindId(nbrs.NeighborId());
+                    auto person = (snb::PersonSchema::Person*)engine.GetVertex(nbrs.NeighborId()).Data();
+                    uint64_t person_id = person->id;
                     auto key = std::make_pair(-date, person_id);
                     auto value = std::make_tuple(nbrs.NeighborId(), vid);
                     std::unordered_map<uint64_t, std::pair<int64_t, uint64_t>>::iterator iter;
@@ -1518,8 +1475,8 @@ public:
                 while (nbrs.Valid() && flag)
                 {
                     int64_t date = *(uint64_t*)nbrs.EdgeData().Data();
-//                    auto person = (snb::PersonSchema::Person*)engine.GetVertex(nbrs.NeighborId()).Data();
-                    uint64_t person_id = personSchema.rfindId(nbrs.NeighborId());
+                    auto person = (snb::PersonSchema::Person*)engine.GetVertex(nbrs.NeighborId()).Data();
+                    uint64_t person_id = person->id;
                     auto key = std::make_pair(-date, person_id);
                     auto value = std::make_tuple(nbrs.NeighborId(), vid);
                     std::unordered_map<uint64_t, std::pair<int64_t, uint64_t>>::iterator iter;
@@ -1861,7 +1818,8 @@ public:
                     auto person_vid = nbrs.NeighborId();
                     if(*std::lower_bound(friends.begin(), friends.end(), person_vid) == person_vid)
                     {
-                        auto person_id = personSchema.rfindId(person_vid);
+                        auto person = (snb::PersonSchema::Person*)engine.GetVertex(person_vid).Data();
+                        uint64_t person_id = person->id;
                         auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
                         auto value = person_vid;
 //                        #pragma omp critical
@@ -1876,40 +1834,6 @@ public:
                 nbrs.Next();
             }
         }
-//        #pragma omp parallel for
-//        for(size_t i=0;i<friends.size();i++)
-//        {
-//            uint64_t vid = friends[i];
-//            auto person_id = personSchema.rfindId(vid);
-//            auto nbrs = engine.GetNeighborhood(vid, (EdgeType)snb::EdgeSchema::Person2Org_work);
-//            bool flag = true;
-//            while (nbrs.Valid() && flag)
-//            {
-//                int32_t date = *(uint32_t*)nbrs.EdgeData().Data();
-//                if(date < request.workFromYear)
-//                {
-//                    auto org = (snb::OrgSchema::Org*)engine.GetVertex(nbrs.NeighborId()).Data();
-//                    if(org->place == country)
-//                    {
-//                        auto key = std::make_tuple(-date, -(int64_t)person_id, std::string(org->name(), org->nameLen()));
-//                        auto value = vid;
-//                        #pragma omp critical
-//                        if(idx.size() < (size_t)request.limit || idx.rbegin()->first < key)
-//                        {
-//                            idx.emplace(key, value);
-//                            while(idx.size() > (size_t)request.limit) idx.erase(idx.rbegin()->first);
-//                            flag = true;
-//                        }
-//                        else
-//                        {
-//                            flag = std::get<0>(idx.rbegin()->first) < std::get<0>(key) || (std::get<0>(idx.rbegin()->first) == std::get<0>(key) && std::get<1>(idx.rbegin()->first) < std::get<1>(key));
-//                        }
-//                    }
-//
-//                }
-//                nbrs.Next();
-//            }
-//        }
 
         for(auto p : idx)
         {
@@ -1968,7 +1892,8 @@ public:
             }
             if(count)
             {
-                auto person_id = personSchema.rfindId(vid);
+                auto person = (snb::PersonSchema::Person*)engine.GetVertex(vid).Data();
+                uint64_t person_id = person->id;
                 auto key = std::make_pair(-count, person_id);
                 std::vector<uint64_t> tagV;
                 for(auto p: tagSet) tagV.push_back(p);
@@ -2027,13 +1952,19 @@ public:
         {
             return a.first > b.first;
         });
+        std::unordered_map<uint64_t, uint64_t> idx;
         for(auto p:paths)
         {
             _return.emplace_back();
             _return.back().pathWeight = p.first;
             for(auto vid:p.second)
             {
-                _return.back().personIdsInPath.emplace_back(personSchema.rfindId(vid));
+                auto iter = idx.find(vid);
+                if(iter == idx.end()){
+                    auto person = (snb::PersonSchema::Person*)engine.GetVertex(vid).Data();
+                    iter = idx.emplace(vid, person->id).first;
+                }
+                _return.back().personIdsInPath.emplace_back(iter->second);
             }
         }
 
@@ -2054,7 +1985,8 @@ public:
         _return.birthday = to_time(person->birthday);
         _return.locationIp = std::string(person->locationIP(), person->locationIPLen());
         _return.browserUsed = std::string(person->browserUsed(), person->browserUsedLen());
-        _return.cityId = placeSchema.rfindId(person->place);
+        auto place = (snb::PlaceSchema::Place*)txn.GetVertex(person->place).Data();
+        _return.cityId = place->id;
         _return.gender = std::string(person->gender(), person->genderLen());
         _return.creationDate = person->creationDate;
     }
@@ -2083,17 +2015,7 @@ public:
 
 void signalHandler(int signum)
 {
-    if(!running)
-    {
-        exit(signum);
-    }
-    else
-    {
-        if(::server) 
-            ::server->stop(); 
-        else 
-            running = false;
-    }
+    if(::server) ::server->stop(); 
 }
 
 int main(int argc, char** argv)
@@ -2103,109 +2025,173 @@ int main(int argc, char** argv)
     std::string dataPath = argv[2];
     int port = std::stoi(argv[3]);
 
-    graph = new livegraph::Graph(graphPath);
+    graph = new livegraph::Graph(graphPath+"/graph");
 
+    rocksdb::DB *rocksdb_db;
+    rocksdb::Options options;
+    options.create_if_missing = true;
+    options.create_missing_column_families = true;
+    options.table_cache_numshardbits = 10;
+    options.compression = rocksdb::kNoCompression;
+    options.bottommost_compression = rocksdb::kNoCompression;
+
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.index_type = rocksdb::BlockBasedTableOptions::kHashSearch;
+    table_options.data_block_index_type = rocksdb::BlockBasedTableOptions::kDataBlockBinarySearch;
+    table_options.block_cache = rocksdb::NewLRUCache(4096ul * 1024 * 1024);
+    rocksdb::ColumnFamilyOptions id_options, name_options;
+    name_options.prefix_extractor.reset(rocksdb::NewNoopTransform());
+    name_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+    name_options.compression = rocksdb::kNoCompression;
+    name_options.bottommost_compression = rocksdb::kNoCompression;
+    id_options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(sizeof(uint64_t)));
+    id_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+    id_options.compression = rocksdb::kNoCompression;
+    id_options.bottommost_compression = rocksdb::kNoCompression;
+
+    std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+    std::vector<rocksdb::ColumnFamilyHandle*> handles;
+    column_families.emplace_back("personSchema_vidx", id_options);
+    column_families.emplace_back("personSchema_rvidx", id_options);
+    column_families.emplace_back("personSchema_nameidx", name_options);
+    column_families.emplace_back("placeSchema_vidx", id_options);
+    column_families.emplace_back("placeSchema_rvidx", id_options);
+    column_families.emplace_back("placeSchema_nameidx", name_options);
+    column_families.emplace_back("orgSchema_vidx", id_options);
+    column_families.emplace_back("orgSchema_rvidx", id_options);
+    column_families.emplace_back("orgSchema_nameidx", name_options);
+    column_families.emplace_back("postSchema_vidx", id_options);
+    column_families.emplace_back("postSchema_rvidx", id_options);
+    column_families.emplace_back("postSchema_nameidx", name_options);
+    column_families.emplace_back("commentSchema_vidx", id_options);
+    column_families.emplace_back("commentSchema_rvidx", id_options);
+    column_families.emplace_back("commentSchema_nameidx", name_options);
+    column_families.emplace_back("tagSchema_vidx", id_options);
+    column_families.emplace_back("tagSchema_rvidx", id_options);
+    column_families.emplace_back("tagSchema_nameidx", name_options);
+    column_families.emplace_back("tagclassSchema_vidx", id_options);
+    column_families.emplace_back("tagclassSchema_rvidx", id_options);
+    column_families.emplace_back("tagclassSchema_nameidx", name_options);
+    column_families.emplace_back("forumSchema_vidx", id_options);
+    column_families.emplace_back("forumSchema_rvidx", id_options);
+    column_families.emplace_back("forumSchema_nameidx", name_options);
+
+    column_families.emplace_back(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions());
+    rocksdb::DB::Open(options, graphPath, column_families, &handles, &rocksdb_db);
+
+    personSchema   = snb::PersonSchema  (rocksdb_db, handles[ 0], handles[ 1], handles[ 2]);
+    placeSchema    = snb::PlaceSchema   (rocksdb_db, handles[ 3], handles[ 4], handles[ 5]);
+    orgSchema      = snb::OrgSchema     (rocksdb_db, handles[ 6], handles[ 7], handles[ 8]);
+    postSchema     = snb::MessageSchema (rocksdb_db, handles[ 9], handles[10], handles[11]);
+    commentSchema  = snb::MessageSchema (rocksdb_db, handles[12], handles[13], handles[14]);
+    tagSchema      = snb::TagSchema     (rocksdb_db, handles[15], handles[16], handles[17]);
+    tagclassSchema = snb::TagClassSchema(rocksdb_db, handles[18], handles[19], handles[20]);
+    forumSchema    = snb::ForumSchema   (rocksdb_db, handles[21], handles[22], handles[23]);
+
+    if(graph->VertexId() == 0)
     {
-        std::vector<std::thread> pool;
-        pool.emplace_back(prepareVIndex, std::ref(personSchema),   dataPath+snb::personPathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(placeSchema),    dataPath+snb::placePathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(orgSchema),      dataPath+snb::orgPathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(postSchema),     dataPath+snb::postPathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(commentSchema),  dataPath+snb::commentPathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(tagSchema),      dataPath+snb::tagPathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(tagclassSchema), dataPath+snb::tagclassPathSuffix);
-        pool.emplace_back(prepareVIndex, std::ref(forumSchema),    dataPath+snb::forumPathSuffix);
-        for(auto &t:pool) t.join();
-    }
-
-    std::cout << "Finish prepareVIndex" << std::endl;
-
-    {
-        std::vector<std::thread> pool;
-        pool.emplace_back(importPerson,   std::ref(personSchema),   dataPath, std::ref(placeSchema));
-        pool.emplace_back(importPlace,    std::ref(placeSchema),    dataPath);
-        pool.emplace_back(importOrg,      std::ref(orgSchema),      dataPath, std::ref(placeSchema));
-        pool.emplace_back(importPost,     std::ref(postSchema),     dataPath, std::ref(personSchema), std::ref(forumSchema), std::ref(placeSchema));
-        pool.emplace_back(importComment,  std::ref(commentSchema),  dataPath, std::ref(personSchema), std::ref(placeSchema), std::ref(postSchema));
-        pool.emplace_back(importTag,      std::ref(tagSchema),      dataPath, std::ref(tagclassSchema));
-        pool.emplace_back(importTagClass, std::ref(tagclassSchema), dataPath);
-        pool.emplace_back(importForum,    std::ref(forumSchema),    dataPath, std::ref(personSchema));
-
-        pool.emplace_back(importRawEdge, std::ref(personSchema),  std::ref(tagSchema), snb::EdgeSchema::Person2Tag,  snb::EdgeSchema::Tag2Person,  dataPath+snb::personHasInterestPathSuffix);
-        pool.emplace_back(importRawEdge, std::ref(postSchema),    std::ref(tagSchema), snb::EdgeSchema::Post2Tag,    snb::EdgeSchema::Tag2Post,    dataPath+snb::postHasTagPathSuffix);
-        pool.emplace_back(importRawEdge, std::ref(commentSchema), std::ref(tagSchema), snb::EdgeSchema::Comment2Tag, snb::EdgeSchema::Tag2Comment, dataPath+snb::commentHasTagPathSuffix);
-        pool.emplace_back(importRawEdge, std::ref(forumSchema),   std::ref(tagSchema), snb::EdgeSchema::Forum2Tag,   snb::EdgeSchema::Tag2Forum,   dataPath+snb::forumHasTagPathSuffix);
-        for(auto &t:pool) t.join();
-    }
-    {
-        std::vector<std::thread> pool;
-
-        auto DateTimeParser = [](std::string str)
         {
-            auto dateTime = from_time(str);
-            snb::Buffer buf(sizeof(uint64_t));
-            *(uint64_t*)buf.data() = std::chrono::duration_cast<std::chrono::milliseconds>(dateTime.time_since_epoch()).count();
-            return buf;
-        };
+            std::vector<std::thread> pool;
+            pool.emplace_back(prepareVIndex, std::ref(personSchema),   dataPath+snb::personPathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(placeSchema),    dataPath+snb::placePathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(orgSchema),      dataPath+snb::orgPathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(postSchema),     dataPath+snb::postPathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(commentSchema),  dataPath+snb::commentPathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(tagSchema),      dataPath+snb::tagPathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(tagclassSchema), dataPath+snb::tagclassPathSuffix);
+            pool.emplace_back(prepareVIndex, std::ref(forumSchema),    dataPath+snb::forumPathSuffix);
+            for(auto &t:pool) t.join();
+        }
 
-        auto YearParser = [](std::string str)
+        std::cout << "Finish prepareVIndex" << std::endl;
+
         {
-            snb::Buffer buf(sizeof(int32_t));
-            *(int32_t*)buf.data() = std::stoi(str);
-            return buf;
-        };
+            std::vector<std::thread> pool;
+            pool.emplace_back(importPerson,   std::ref(personSchema),   dataPath, std::ref(placeSchema));
+            pool.emplace_back(importPlace,    std::ref(placeSchema),    dataPath);
+            pool.emplace_back(importOrg,      std::ref(orgSchema),      dataPath, std::ref(placeSchema));
+            pool.emplace_back(importPost,     std::ref(postSchema),     dataPath, std::ref(personSchema), std::ref(forumSchema), std::ref(placeSchema));
+            pool.emplace_back(importComment,  std::ref(commentSchema),  dataPath, std::ref(personSchema), std::ref(placeSchema), std::ref(postSchema));
+            pool.emplace_back(importTag,      std::ref(tagSchema),      dataPath, std::ref(tagclassSchema));
+            pool.emplace_back(importTagClass, std::ref(tagclassSchema), dataPath);
+            pool.emplace_back(importForum,    std::ref(forumSchema),    dataPath, std::ref(personSchema));
 
-//        pool.emplace_back(importDataEdge, std::ref(forumSchema),  std::ref(personSchema),  snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
-//                dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
-//        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
-//                dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, true);
-        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(postSchema),    snb::EdgeSchema::Person2Post_like,    snb::EdgeSchema::Post2Person_like, 
-                dataPath+snb::personLikePostPathSuffix, DateTimeParser, true);
-        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(commentSchema), snb::EdgeSchema::Person2Comment_like, snb::EdgeSchema::Comment2Person_like, 
-                dataPath+snb::personLikeCommentPathSuffix, DateTimeParser, true);
-        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_study,    snb::EdgeSchema::Org2Person_study, 
-                dataPath+snb::personStudyAtOrgPathSuffix, YearParser, true);
-        pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_work,     snb::EdgeSchema::Org2Person_work, 
-                dataPath+snb::personWorkAtOrgPathSuffix, YearParser, true);
-        pool.emplace_back(importMember, dataPath+snb::forumHasMemberPathSuffix);
-        pool.emplace_back(importKnows, dataPath+snb::personKnowsPersonPathSuffix);
-        for(auto &t:pool) t.join();
+            pool.emplace_back(importRawEdge, std::ref(personSchema),  std::ref(tagSchema), snb::EdgeSchema::Person2Tag,  snb::EdgeSchema::Tag2Person,  dataPath+snb::personHasInterestPathSuffix);
+            pool.emplace_back(importRawEdge, std::ref(postSchema),    std::ref(tagSchema), snb::EdgeSchema::Post2Tag,    snb::EdgeSchema::Tag2Post,    dataPath+snb::postHasTagPathSuffix);
+            pool.emplace_back(importRawEdge, std::ref(commentSchema), std::ref(tagSchema), snb::EdgeSchema::Comment2Tag, snb::EdgeSchema::Tag2Comment, dataPath+snb::commentHasTagPathSuffix);
+            pool.emplace_back(importRawEdge, std::ref(forumSchema),   std::ref(tagSchema), snb::EdgeSchema::Forum2Tag,   snb::EdgeSchema::Tag2Forum,   dataPath+snb::forumHasTagPathSuffix);
+            for(auto &t:pool) t.join();
+        }
+        {
+            std::vector<std::thread> pool;
+
+            auto DateTimeParser = [](std::string str)
+            {
+                auto dateTime = from_time(str);
+                snb::Buffer buf(sizeof(uint64_t));
+                *(uint64_t*)buf.data() = std::chrono::duration_cast<std::chrono::milliseconds>(dateTime.time_since_epoch()).count();
+                return buf;
+            };
+
+            auto YearParser = [](std::string str)
+            {
+                snb::Buffer buf(sizeof(int32_t));
+                *(int32_t*)buf.data() = std::stoi(str);
+                return buf;
+            };
+
+//            pool.emplace_back(importDataEdge, std::ref(forumSchema),  std::ref(personSchema),  snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
+//                    dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
+//            pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
+//                    dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, true);
+            pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(postSchema),    snb::EdgeSchema::Person2Post_like,    snb::EdgeSchema::Post2Person_like, 
+                    dataPath+snb::personLikePostPathSuffix, DateTimeParser, true);
+            pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(commentSchema), snb::EdgeSchema::Person2Comment_like, snb::EdgeSchema::Comment2Person_like, 
+                    dataPath+snb::personLikeCommentPathSuffix, DateTimeParser, true);
+            pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_study,    snb::EdgeSchema::Org2Person_study, 
+                    dataPath+snb::personStudyAtOrgPathSuffix, YearParser, true);
+            pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_work,     snb::EdgeSchema::Org2Person_work, 
+                    dataPath+snb::personWorkAtOrgPathSuffix, YearParser, true);
+            pool.emplace_back(importMember, dataPath+snb::forumHasMemberPathSuffix);
+            pool.emplace_back(importKnows, dataPath+snb::personKnowsPersonPathSuffix);
+            for(auto &t:pool) t.join();
+        }
+
+        std::cout << "Finish importing" << std::endl;
     }
-
-    std::cout << "Finish import" << std::endl;
-
-    while(running)
+    else
     {
-        if(!graph) graph = new livegraph::Graph(graphPath);
-
-        const int workerCount = std::thread::hardware_concurrency();
-        stdcxx::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
-        threadManager->threadFactory(stdcxx::make_shared<PlatformThreadFactory>());
-        threadManager->start();
-        ::server = new TThreadPoolServer(
-            stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
-            stdcxx::make_shared<TServerSocket>(port),
-            stdcxx::make_shared<TBufferedTransportFactory>(),
-            stdcxx::make_shared<TBinaryProtocolFactory>(),
-            threadManager);
-
-//        ::server = new TThreadedServer(
-//            stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
-//            stdcxx::make_shared<TServerSocket>(port),
-//            stdcxx::make_shared<TBufferedTransportFactory>(),
-//            stdcxx::make_shared<TBinaryProtocolFactory>());
-
-        std::cout << "Starting the server..." << std::endl;
-        ::server->serve();
-        delete ::server;
-        ::server = nullptr;
-        delete graph;
-        graph = nullptr;
-
-        sleep(1);
+        std::cout << "Finish loading" << std::endl;
     }
+
+    const int workerCount = std::thread::hardware_concurrency();
+    stdcxx::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
+    threadManager->threadFactory(stdcxx::make_shared<PlatformThreadFactory>());
+    threadManager->start();
+    ::server = new TThreadPoolServer(
+        stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
+        stdcxx::make_shared<TServerSocket>(port),
+        stdcxx::make_shared<TBufferedTransportFactory>(),
+        stdcxx::make_shared<TBinaryProtocolFactory>(),
+        threadManager);
+
+//    ::server = new TThreadedServer(
+//        stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
+//        stdcxx::make_shared<TServerSocket>(port),
+//        stdcxx::make_shared<TBufferedTransportFactory>(),
+//        stdcxx::make_shared<TBinaryProtocolFactory>());
+
+    std::cout << "Starting the server..." << std::endl;
+    ::server->serve();
+    delete ::server;
+    ::server = nullptr;
 
     delete graph;
+    for(auto p:handles)
+    {
+        rocksdb_db->DestroyColumnFamilyHandle(p);
+    }
+    delete rocksdb_db;
 
     return 0;
 }

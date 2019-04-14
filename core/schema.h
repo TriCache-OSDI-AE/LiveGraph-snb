@@ -4,6 +4,10 @@
 #include <cstring>
 #include <cassert>
 #include <tbb/concurrent_hash_map.h>
+#include <rocksdb/db.h>
+#include <rocksdb/slice_transform.h>
+#include <rocksdb/table.h>
+#include <rocksdb/options.h>
 
 namespace snb
 {
@@ -11,48 +15,63 @@ namespace snb
     class Schema
     {
     private:
-        tbb::concurrent_hash_map<uint64_t, uint64_t> vindex;
-        tbb::concurrent_hash_map<uint64_t, uint64_t> rvindex;
-        tbb::concurrent_hash_map<std::string, uint64_t> nameindex;
+        rocksdb::DB* db;
+        rocksdb::ColumnFamilyHandle* vindex;
+        rocksdb::ColumnFamilyHandle* rvindex;
+        rocksdb::ColumnFamilyHandle* nameindex;
+        rocksdb::ReadOptions read_options;
+        rocksdb::WriteOptions write_options;
     public:
         void insertId(uint64_t id, uint64_t vid)
         {   
-            tbb::concurrent_hash_map<uint64_t, uint64_t>::accessor a, b;
-            vindex.insert(a, id);
-            a->second = vid;
-            rvindex.insert(b, vid);
-            b->second = id;
+            rocksdb::Slice key((char *)&id, sizeof(id));
+            rocksdb::Slice val((char *)&vid, sizeof(vid));
+            db->Put(write_options, vindex, key, val);
+            db->Put(write_options, rvindex, val, key);
         }
 
         uint64_t findId(uint64_t id)
         {
-            tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
-            bool exist = vindex.find(a, id);
-            if(!exist) return (uint64_t)-1;
-            return a->second;
+            rocksdb::Slice key((char *)&id, sizeof(id));
+            std::string val;
+            rocksdb::Status status = db->Get(read_options, vindex, key, &val);
+            if(!status.ok()) return (uint64_t)-1;
+            return *(uint64_t*)val.data();
         }
 
         uint64_t rfindId(uint64_t vid)
         {
-            tbb::concurrent_hash_map<uint64_t, uint64_t>::const_accessor a;
-            bool exist = rvindex.find(a, vid);
-            if(!exist) return (uint64_t)-1;
-            return a->second;
+            rocksdb::Slice key((char *)&vid, sizeof(vid));
+            std::string val;
+            rocksdb::Status status = db->Get(read_options, rvindex, key, &val);
+            if(!status.ok()) return (uint64_t)-1;
+            return *(uint64_t*)val.data();
         }
 
         void insertName(std::string name, uint64_t vid)
         {   
-            tbb::concurrent_hash_map<std::string, uint64_t>::accessor a;
-            nameindex.insert(a, name);
-            a->second = vid;
+            rocksdb::Slice key(name);
+            rocksdb::Slice val((char *)&vid, sizeof(vid));
+            db->Put(write_options, nameindex, key, val);
         }
 
         uint64_t findName(std::string name)
         {
-            tbb::concurrent_hash_map<std::string, uint64_t>::const_accessor a;
-            bool exist = nameindex.find(a, name);
-            if(!exist) return (uint64_t)-1;
-            return a->second;
+            rocksdb::Slice key(name);
+            std::string val;
+            rocksdb::Status status = db->Get(read_options, nameindex, key, &val);
+            if(!status.ok()) return (uint64_t)-1;
+            return *(uint64_t*)val.data();
+        }
+        Schema()
+            :db(nullptr), vindex(nullptr), rvindex(nullptr), nameindex(nullptr), read_options(), write_options()
+        {
+        }
+        Schema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :db(_db), vindex(_vindex), rvindex(_rvindex), nameindex(_nameindex), read_options(), write_options()
+        {
+            read_options.prefix_same_as_start = true;
+            write_options.disableWAL = true;
         }
     };
     class PersonSchema : public Schema
@@ -185,6 +204,16 @@ namespace snb
             return buf;
         }
 
+        PersonSchema()
+            :Schema()
+        {
+        }
+        PersonSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
+        }
+
     };
 
     class PlaceSchema : public Schema
@@ -246,6 +275,15 @@ namespace snb
             return buf;
         }
 
+        PlaceSchema()
+            :Schema()
+        {
+        }
+        PlaceSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
+        }
     };
 
     class OrgSchema : public Schema
@@ -303,6 +341,16 @@ namespace snb
 
             assert(org->length + sizeof(Org) == size);
             return buf;
+        }
+
+        OrgSchema()
+            :Schema()
+        {
+        }
+        OrgSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
         }
     };
 
@@ -411,6 +459,16 @@ namespace snb
             assert(message->length + sizeof(Message) == size);
             return buf;
         }
+
+        MessageSchema()
+            :Schema()
+        {
+        }
+        MessageSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
+        }
     };
 
     class TagSchema : public Schema
@@ -462,6 +520,16 @@ namespace snb
 
             assert(tag->length + sizeof(Tag) == size);
             return buf;
+        }
+
+        TagSchema()
+            :Schema()
+        {
+        }
+        TagSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
         }
     };
 
@@ -515,6 +583,16 @@ namespace snb
             assert(tagclass->length + sizeof(TagClass) == size);
             return buf;
         }
+
+        TagClassSchema()
+            :Schema()
+        {
+        }
+        TagClassSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
+        }
     };
 
     class ForumSchema : public Schema
@@ -555,6 +633,16 @@ namespace snb
 
             assert(forum->length + sizeof(Forum) == size);
             return buf;
+        }
+
+        ForumSchema()
+            :Schema()
+        {
+        }
+        ForumSchema(rocksdb::DB *_db, rocksdb::ColumnFamilyHandle *_vindex, rocksdb::ColumnFamilyHandle *_rvindex, rocksdb::ColumnFamilyHandle *_nameindex)
+            :Schema(_db, _vindex, _rvindex, _nameindex)
+        {
+
         }
     };
 
