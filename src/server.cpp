@@ -1995,7 +1995,8 @@ public:
     void update1(const interactive::Update1Request& request)
     {
         if(graph->WorkerId() == -1) graph->AssignWorkerId();
-        uint64_t vid = (uint64_t)-1;
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid != (uint64_t)-1) return;
         uint64_t place_vid = placeSchema.findId(request.cityId);
         auto birthday = std::chrono::system_clock::time_point(std::chrono::milliseconds(request.birthday));
         auto person_buf = snb::PersonSchema::createPerson(request.personId, request.personFirstName, request.personLastName, request.gender,  
@@ -2018,11 +2019,6 @@ public:
                 }
                 txn.PutVertex(vid, livegraph::Bytes(person_buf.data(), person_buf.size()));
                 txn.PutEdge(place_vid, (EdgeType)snb::EdgeSchema::Place2Person, vid, livegraph::Bytes());
-                for(auto tag:tag_vid)
-                {
-                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Person2Tag, tag, livegraph::Bytes());
-                    txn.PutEdge(tag, (EdgeType)snb::EdgeSchema::Tag2Person, vid, livegraph::Bytes());
-                }
                 for(auto tag:tag_vid)
                 {
                     txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Person2Tag, tag, livegraph::Bytes());
@@ -2104,7 +2100,8 @@ public:
     void update4(const Update4Request& request)
     {
         if(graph->WorkerId() == -1) graph->AssignWorkerId();
-        uint64_t vid = (uint64_t)-1;
+        uint64_t vid = forumSchema.findId(request.forumId);
+        if(vid != (uint64_t)-1) return;
         uint64_t moderator_vid = personSchema.findId(request.moderatorPersonId);
         if(moderator_vid == (uint64_t)-1) return;
         auto forum_buf = snb::ForumSchema::createForum(request.forumId, request.forumTitle, request.creationDate, moderator_vid);
@@ -2137,7 +2134,6 @@ public:
                 txn.Abort();
             }
         }
-
     }
 
     void update5(const Update5Request& request)
@@ -2152,12 +2148,188 @@ public:
             auto txn = graph->BeginTransaction();
             try
             {
+                auto nbrs = txn.GetNeighborhood(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
+                uint64_t posts = 0;
+                while (nbrs.Valid())
+                {
+                    auto message = (snb::MessageSchema::Message*)txn.GetVertex(nbrs.NeighborId()).Data();
+                    if(message->forumid == forum_vid) posts++;
+                    nbrs.Next();
+                }
+
                 snb::Buffer buf(sizeof(uint64_t)+sizeof(uint64_t));
                 *(uint64_t*)buf.data() = request.joinDate;
-                *(uint64_t*)(buf.data()+sizeof(uint64_t)) = 0;
+                *(uint64_t*)(buf.data()+sizeof(uint64_t)) = posts;
 
                 txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Forum_member, forum_vid, livegraph::Bytes(buf.data(), buf.size()));
                 txn.PutEdge(forum_vid, (EdgeType)snb::EdgeSchema::Forum2Person_member, person_vid, livegraph::Bytes(buf.data(), buf.size()));
+
+                auto epoch = txn.Commit();
+                while(graph->EpochId() < epoch) compiler_fence();
+                break;
+            } 
+            catch (const char * msg) 
+            {
+                txn.Abort();
+            }
+        }
+    }
+
+    void update6(const Update6Request& request)
+    {
+        if(graph->WorkerId() == -1) graph->AssignWorkerId();
+        uint64_t vid = postSchema.findId(request.postId);
+        if(vid != (uint64_t)-1) return;
+        uint64_t person_vid = personSchema.findId(request.authorPersonId);
+        uint64_t forum_vid = forumSchema.findId(request.forumId);
+        uint64_t place_vid = placeSchema.findId(request.countryId);
+        if(person_vid == (uint64_t)-1) return;
+        if(forum_vid == (uint64_t)-1) return;
+        if(place_vid == (uint64_t)-1) return;
+        std::vector<uint64_t> tag_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        auto message_buf = snb::MessageSchema::createMessage(request.postId, request.imageFile, 
+                request.creationDate, request.locationIp, request.browserUsed, 
+                request.language, request.content, person_vid, forum_vid, place_vid, 
+                (uint64_t)-1, (uint64_t)-1, snb::MessageSchema::Message::Type::Post);
+        while(true)
+        {
+            auto txn = graph->BeginTransaction();
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.AddVertex();
+                    postSchema.insertId(request.postId, vid);
+                }
+                txn.PutVertex(vid, livegraph::Bytes(message_buf.data(), message_buf.size()));
+
+                {
+                    std::vector<std::pair<uint64_t, uint64_t>> edges;
+                    auto nbrs = txn.GetNeighborhood(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
+                    while (nbrs.Valid())
+                    {
+                        uint64_t date = *(uint64_t*)(nbrs.EdgeData().Data());
+                        if(date <= (uint64_t)request.creationDate) break;
+                        edges.emplace_back(nbrs.NeighborId(), date);
+                        nbrs.Next();
+                    }
+                    for(auto p:edges) txn.DeleteEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator, p.first);
+                    txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator, vid, livegraph::Bytes((char*)&request.creationDate, sizeof(request.creationDate)));
+                    std::reverse(edges.begin(), edges.end());
+                    for(auto p:edges) txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator, p.first, livegraph::Bytes((char*)&p.second, sizeof(p.second)));
+                }
+
+                {
+                    auto bytes = txn.GetEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Forum_member, forum_vid);
+                    if(bytes.Data())
+                    {
+                        auto buf = bytes.ToString();
+                        *(uint64_t*)(buf.data()+sizeof(uint64_t)) += 1;
+                        txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Forum_member, forum_vid, livegraph::Bytes(buf.data(), buf.size()));
+                        txn.PutEdge(forum_vid, (EdgeType)snb::EdgeSchema::Forum2Person_member, person_vid, livegraph::Bytes(buf.data(), buf.size()));
+                    }
+                }
+
+                txn.PutEdge(forum_vid, (EdgeType)snb::EdgeSchema::Forum2Post, vid, livegraph::Bytes());
+
+                for(auto tag:tag_vid)
+                {
+                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Post2Tag, tag, livegraph::Bytes());
+                    txn.PutEdge(tag, (EdgeType)snb::EdgeSchema::Tag2Post, vid, livegraph::Bytes());
+                }
+
+                auto epoch = txn.Commit();
+                while(graph->EpochId() < epoch) compiler_fence();
+                break;
+            } 
+            catch (const char * msg) 
+            {
+                txn.Abort();
+            }
+        }
+    }
+
+    void update7(const Update7Request& request)
+    {
+        if(graph->WorkerId() == -1) graph->AssignWorkerId();
+        uint64_t vid = commentSchema.findId(request.commentId);
+        if(vid != (uint64_t)-1) return;
+        uint64_t person_vid = personSchema.findId(request.authorPersonId);
+        uint64_t place_vid = placeSchema.findId(request.countryId);
+        uint64_t post_vid = postSchema.findId(request.replyToPostId);
+        uint64_t comment_vid = commentSchema.findId(request.replyToCommentId);
+        if(person_vid == (uint64_t)-1) return;
+        if(place_vid == (uint64_t)-1) return;
+        if(post_vid == (uint64_t)-1 && comment_vid == (uint64_t)-1) return;
+        uint64_t message_vid = (post_vid != (uint64_t)-1) ? post_vid : comment_vid;
+        std::vector<uint64_t> tag_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        auto message_buf = snb::MessageSchema::createMessage(request.commentId, std::string(), 
+                request.creationDate, request.locationIp, request.browserUsed, 
+                std::string(), request.content, person_vid, (uint64_t)-1, place_vid, 
+                post_vid, comment_vid, snb::MessageSchema::Message::Type::Comment);
+        while(true)
+        {
+            auto txn = graph->BeginTransaction();
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.AddVertex();
+                    commentSchema.insertId(request.commentId, vid);
+                }
+                txn.PutVertex(vid, livegraph::Bytes(message_buf.data(), message_buf.size()));
+
+                {
+                    std::vector<std::pair<uint64_t, uint64_t>> edges;
+                    auto nbrs = txn.GetNeighborhood(person_vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator);
+                    while (nbrs.Valid())
+                    {
+                        uint64_t date = *(uint64_t*)(nbrs.EdgeData().Data());
+                        if(date <= (uint64_t)request.creationDate) break;
+                        edges.emplace_back(nbrs.NeighborId(), date);
+                        nbrs.Next();
+                    }
+                    for(auto p:edges) txn.DeleteEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator, p.first);
+                    txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator, vid, livegraph::Bytes((char*)&request.creationDate, sizeof(request.creationDate)));
+                    std::reverse(edges.begin(), edges.end());
+                    for(auto p:edges) txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Comment_creator, p.first, livegraph::Bytes((char*)&p.second, sizeof(p.second)));
+                }
+
+                {
+                    std::vector<std::pair<uint64_t, uint64_t>> edges;
+                    auto nbrs = txn.GetNeighborhood(message_vid, (EdgeType)snb::EdgeSchema::Message2Message_down);
+                    while (nbrs.Valid())
+                    {
+                        uint64_t date = *(uint64_t*)(nbrs.EdgeData().Data());
+                        if(date <= (uint64_t)request.creationDate) break;
+                        edges.emplace_back(nbrs.NeighborId(), date);
+                        nbrs.Next();
+                    }
+                    for(auto p:edges) txn.DeleteEdge(message_vid, (EdgeType)snb::EdgeSchema::Message2Message_down, p.first);
+                    txn.PutEdge(message_vid, (EdgeType)snb::EdgeSchema::Message2Message_down, vid, livegraph::Bytes((char*)&request.creationDate, sizeof(request.creationDate)));
+                    std::reverse(edges.begin(), edges.end());
+                    for(auto p:edges) txn.PutEdge(message_vid, (EdgeType)snb::EdgeSchema::Message2Message_down, p.first, livegraph::Bytes((char*)&p.second, sizeof(p.second)));
+                }
+
+                {
+                    auto friend_vid = ((snb::MessageSchema::Message*)txn.GetVertex(message_vid).Data())->creator;
+                    auto bytes = txn.GetEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Person, friend_vid);
+                    if(bytes.Data())
+                    {
+                        auto buf = bytes.ToString();
+                        *(double*)(buf.data()+sizeof(uint64_t)) += (post_vid == message_vid)?1.0:0.5;
+                        txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Person, friend_vid, livegraph::Bytes(buf.data(), buf.size()));
+                        txn.PutEdge(friend_vid, (EdgeType)snb::EdgeSchema::Person2Person, person_vid, livegraph::Bytes(buf.data(), buf.size()));
+                    }
+                }
+
+                for(auto tag:tag_vid)
+                {
+                    txn.PutEdge(vid, (EdgeType)snb::EdgeSchema::Comment2Tag, tag, livegraph::Bytes());
+                    txn.PutEdge(tag, (EdgeType)snb::EdgeSchema::Tag2Comment, vid, livegraph::Bytes());
+                }
 
                 auto epoch = txn.Commit();
                 while(graph->EpochId() < epoch) compiler_fence();

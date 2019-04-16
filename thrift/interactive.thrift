@@ -263,6 +263,35 @@ struct Update5Request {
     3: i64 joinDate,
 }
 
+struct Update6Request {
+    1: i64 postId,
+    2: string imageFile,
+    3: i64 creationDate,
+    4: string locationIp,
+    5: string browserUsed,
+    6: string language,
+    7: string content,
+    8: i32 length,
+    9: i64 authorPersonId,
+    10: i64 forumId,
+    11: i64 countryId,
+    12: list<i64> tagIds,
+}
+
+struct Update7Request {
+    1: i64 commentId,
+    2: i64 creationDate,
+    3: string locationIp,
+    4: string browserUsed,
+    5: string content,
+    6: i32 length,
+    7: i64 authorPersonId,
+    8: i64 countryId,
+    9: i64 replyToPostId,
+    10: i64 replyToCommentId,
+    11: list<i64> tagIds,
+}
+
 struct Update8Request {
     1: i64 person1Id,
     2: i64 person2Id,
@@ -290,5 +319,7 @@ service Interactive {
     void update3(1:Update3Request request),
     void update4(1:Update4Request request),
     void update5(1:Update5Request request),
+    void update6(1:Update6Request request),
+    void update7(1:Update7Request request),
     void update8(1:Update8Request request),
 }
