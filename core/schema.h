@@ -12,6 +12,17 @@
 namespace snb
 {
     typedef std::vector<char> Buffer;
+    enum class VertexSchema : int64_t
+    {
+        person,
+        place,
+        org,
+        message,
+        tag,
+        tagclass,
+        forum
+    };
+
     class Schema
     {
     private:
@@ -79,6 +90,7 @@ namespace snb
     public:
         struct Person
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t place;
             uint64_t creationDate;
@@ -163,6 +175,7 @@ namespace snb
 
             Buffer buf(size);
             Person *person = (Person *)buf.data();
+            person->vtype = VertexSchema::person;
             person->id = id;
             person->place = place;
             person->creationDate = creationDate;
@@ -222,6 +235,7 @@ namespace snb
 
         struct Place
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t isPartOf;
             uint16_t url_offset;
@@ -260,6 +274,7 @@ namespace snb
 
             Buffer buf(size);
             Place *place = (Place *)buf.data();
+            place->vtype = VertexSchema::place;
             place->id = id;
             place->isPartOf = isPartOf;
             place->type = type;
@@ -291,6 +306,7 @@ namespace snb
     public:
         struct Org
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t place;
             uint16_t url_offset;
@@ -328,6 +344,7 @@ namespace snb
 
             Buffer buf(size);
             Org *org = (Org *)buf.data();
+            org->vtype = VertexSchema::org;
             org->id = id;
             org->place = place;
             org->type = type;
@@ -359,6 +376,7 @@ namespace snb
     public:
         struct Message
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t creationDate;
             uint64_t creator;
@@ -431,6 +449,7 @@ namespace snb
 
             Buffer buf(size);
             Message *message = (Message *)buf.data();
+            message->vtype = VertexSchema::message;
             message->id = id;
             message->creationDate = creationDate;
             message->creator = creator;
@@ -476,6 +495,7 @@ namespace snb
     public:
         struct Tag
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t hasType;
             uint16_t url_offset;
@@ -508,6 +528,7 @@ namespace snb
 
             Buffer buf(size);
             Tag *tag = (Tag *)buf.data();
+            tag->vtype = VertexSchema::tag;
             tag->id = id;
             tag->hasType = hasType;
 
@@ -538,6 +559,7 @@ namespace snb
     public:
         struct TagClass
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t isSubclassOf;
             uint16_t url_offset;
@@ -570,6 +592,7 @@ namespace snb
 
             Buffer buf(size);
             TagClass *tagclass = (TagClass *)buf.data();
+            tagclass->vtype = VertexSchema::tagclass;
             tagclass->id = id;
             tagclass->isSubclassOf = isSubclassOf;
 
@@ -600,6 +623,7 @@ namespace snb
     public:
         struct Forum
         {
+            VertexSchema vtype;
             uint64_t id;
             uint64_t creationDate;
             uint64_t moderator;
@@ -623,6 +647,7 @@ namespace snb
 
             Buffer buf(size);
             Forum *forum = (Forum *)buf.data();
+            forum->vtype = VertexSchema::forum;
             forum->id = id;
             forum->creationDate = creationDate;
             forum->moderator = moderator;
