@@ -2148,6 +2148,7 @@ public:
         for(;message->replyOfComment != (uint64_t)-1;message = (snb::MessageSchema::Message*)engine.GetVertex(message->replyOfComment).Data());
         if(message->replyOfPost != (uint64_t)-1) message = (snb::MessageSchema::Message*)engine.GetVertex(message->replyOfPost).Data();
         auto forum = (snb::ForumSchema::Forum*)engine.GetVertex(message->forumid).Data();
+        if(!engine.GetVertex(vid).Data()) return;
         auto person = (snb::PersonSchema::Person*)engine.GetVertex(forum->moderator).Data();
         _return.forumId = forum->id;
         _return.forumTitle = std::string(forum->title(), forum->titleLen());
@@ -2258,6 +2259,8 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(person_vid).Data()) return;
+            if(!txn.GetVertex(post_vid).Data()) return;
             try
             {
                 txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_like, post_vid, livegraph::Bytes((char*)&request.creationDate, sizeof(request.creationDate)));
@@ -2284,6 +2287,8 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(person_vid).Data()) return;
+            if(!txn.GetVertex(comment_vid).Data()) return;
             try
             {
                 txn.PutEdge(person_vid, (EdgeType)snb::EdgeSchema::Person2Comment_like, comment_vid, livegraph::Bytes((char*)&request.creationDate, sizeof(request.creationDate)));
@@ -2313,6 +2318,8 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(vid).Data()) return;
+            if(!txn.GetVertex(moderator_vid).Data()) return;
             try
             {
                 if(vid == (uint64_t)-1)
@@ -2349,6 +2356,8 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(person_vid).Data()) return;
+            if(!txn.GetVertex(forum_vid).Data()) return;
             try
             {
                 auto nbrs = txn.GetNeighborhood(person_vid, (EdgeType)snb::EdgeSchema::Person2Post_creator);
@@ -2398,6 +2407,8 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(person_vid).Data()) return;
+            if(!txn.GetVertex(forum_vid).Data()) return;
             try
             {
                 if(vid == (uint64_t)-1)
@@ -2475,6 +2486,8 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(person_vid).Data()) return;
+            if(!txn.GetVertex(message_vid).Data()) return;
             try
             {
                 if(vid == (uint64_t)-1)
@@ -2550,9 +2563,13 @@ public:
         if(graph->WorkerId() == -1) graph->AssignWorkerId();
         uint64_t left = personSchema.findId(request.person1Id);
         uint64_t right = personSchema.findId(request.person2Id);
+        if(left == (uint64_t)-1) return;
+        if(right == (uint64_t)-1) return;
         while(true)
         {
             auto txn = graph->BeginTransaction();
+            if(!txn.GetVertex(left).Data()) return;
+            if(!txn.GetVertex(right).Data()) return;
             try
             {
                 double weight = 0;
