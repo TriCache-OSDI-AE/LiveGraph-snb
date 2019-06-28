@@ -680,8 +680,8 @@ namespace snb
         Person2Comment_creator,    //DateTime, imported
         Person2Tag,                //imported
         Tag2Person,                //imported
-        Forum2Person_member,       //DateTime(unorded), uint64_t, imported
-        Person2Forum_member,       //DateTime(unorded), uint64_t, imported
+        Forum2Person_member,       //DateTime(unordered), uint64_t, imported
+        Person2Forum_member,       //DateTime(unordered), uint64_t, imported
         //Forum2Person_moderator,  //inlined
         Person2Forum_moderator,    //imported
         Post2Tag,                  //imported
@@ -700,16 +700,16 @@ namespace snb
         Place2Org,                 //imported
         //TagClass2TagClass_up,    //inlined
         TagClass2TagClass_down,    //imported
-        Person2Person,             //DateTime(unorded), double, imported
-        Person2Post_like,          //DateTime(unorded), imported
-        Post2Person_like,          //DateTime(unorded), imported
-        Person2Comment_like,       //DateTime(unorded), imported
-        Comment2Person_like,       //DateTime(unorded), imported
+        Person2Person,             //DateTime(unordered), double, imported
+        Person2Post_like,          //DateTime(unordered), imported
+        Post2Person_like,          //DateTime(unordered), imported
+        Person2Comment_like,       //DateTime(unordered), imported
+        Comment2Person_like,       //DateTime(unordered), imported
         //Message2Message_up,      //DateTime, inlined
         Message2Message_down,      //DateTime, imported
-        Person2Org_study,          //Year(unorded), imported
-        Org2Person_study,          //Year(unorded), imported
-        Person2Org_work,           //Year(unorded), imported
-        Org2Person_work,           //Year(unorded), imported
+        Person2Org_study,          //Year(unordered), imported
+        Org2Person_study,          //Year(unordered), imported
+        Person2Org_work,           //Year(unordered), imported
+        Org2Person_work,           //Year(unordered), imported
     };
 }
