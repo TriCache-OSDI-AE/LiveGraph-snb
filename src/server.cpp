@@ -815,7 +815,7 @@ private:
         child[vid_to] = 0;
         forward_q.push_back(vid_from);
         backward_q.push_back(vid_to);
-        int hops = 0, psp = max_hops, fhops = 0, bhops = 0;;
+        int hops = 0, psp = max_hops, fhops = 0, bhops = 0;
         std::map<std::pair<uint64_t, uint64_t>, double> hits;
         while (hops++ < std::min(psp, max_hops)) 
         {
@@ -850,9 +850,9 @@ private:
             }
             else 
             {
+                bhops++;
                 for (uint64_t vid : backward_q) 
                 {
-                    bhops++;
                     auto in_edges = txn.GetNeighborhood(vid, etype);
                     while (in_edges.Valid()) 
                     {
