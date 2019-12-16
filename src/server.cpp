@@ -2318,7 +2318,6 @@ public:
         while(true)
         {
             auto txn = graph->BeginTransaction();
-            if(!txn.GetVertex(vid).Data()) return;
             if(!txn.GetVertex(moderator_vid).Data()) return;
             try
             {
