@@ -69,12 +69,7 @@ link_directories(${PROJECT_BINARY_DIR}/lib)
 set(PROJECT_DEPS_DIR ${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
-pkg_check_modules(PMEM REQUIRED libpmem)
-include_directories(${PMEM_INCLUDE_DIRS})
-link_directories(${PMEM_LIBRARY_DIRS})
-add_definitions(${PMEM_CFLAGS_OTHER})
-
 add_executable(snb_server src/server.cpp ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
 
-target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} ${THRIFT_LIBRARIES} ${PMEM_LIBRARIES} rocksdb.a snappy.a zstd.a)
+target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} rocksdb.a snappy.a zstd.a thrift.a)
 add_dependencies(snb_server rocksdblib)
