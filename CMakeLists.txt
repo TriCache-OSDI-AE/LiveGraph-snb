@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.1)
 project(LiveGraph-snb CXX)
 
-set (CMAKE_CXX_STANDARD 14)
+set (CMAKE_CXX_STANDARD 17)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 find_package(Threads REQUIRED)
@@ -32,6 +32,7 @@ add_definitions(${THRIFT_CFLAGS_OTHER})
 set(THRIFT_GEN_PATH ${CMAKE_BINARY_DIR}/gen-cpp)
 set(THRIFT_CODE_PATH ${CMAKE_SOURCE_DIR}/thrift)
 set(ROCKSDB_CODE_PATH ${CMAKE_SOURCE_DIR}/deps/rocksdb)
+set(LIVEGRAPH_CODE_PATH ${CMAKE_SOURCE_DIR}/deps/LiveGraph)
 add_custom_command(
 OUTPUT
     ${THRIFT_GEN_PATH}/interactive_constants.cpp
@@ -69,7 +70,9 @@ link_directories(${PROJECT_BINARY_DIR}/lib)
 set(PROJECT_DEPS_DIR ${PROJECT_SOURCE_DIR}/deps)
 include_directories(${PROJECT_SOURCE_DIR} ${PROJECT_DEPS_DIR})
 
+add_subdirectory(${PROJECT_DEPS_DIR}/LiveGraph)
+
 add_executable(snb_server src/server.cpp ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
 
-target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} rocksdb.a snappy.a zstd.a thrift.a)
+target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} rocksdb.a snappy.a zstd.a thrift.a livegraph)
 add_dependencies(snb_server rocksdblib)
