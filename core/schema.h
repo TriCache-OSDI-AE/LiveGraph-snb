@@ -82,6 +82,7 @@ namespace snb
             :db(_db), vindex(_vindex), rvindex(_rvindex), nameindex(_nameindex), read_options(), write_options()
         {
             read_options.prefix_same_as_start = true;
+            write_options.sync = false;
             write_options.disableWAL = true;
         }
     };
