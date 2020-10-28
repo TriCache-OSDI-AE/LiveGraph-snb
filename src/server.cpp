@@ -2317,21 +2317,21 @@ public:
                 vid = txn.new_vertex();
                 personSchema.insertId(request.personId, vid);
                 txn.put_vertex(vid, std::string_view(person_buf.data(), person_buf.size()));
-                txn.put_edge(place_vid, (label_t)snb::EdgeSchema::Place2Person, vid, std::string_view());
+                txn.put_edge(place_vid, (label_t)snb::EdgeSchema::Place2Person, vid, std::string_view(), false);
                 for(auto tag:tag_vid)
                 {
-                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Tag, tag, std::string_view());
-                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Person, vid, std::string_view());
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Tag, tag, std::string_view(), false);
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Person, vid, std::string_view(), false);
                 }
                 for(size_t i=0;i<study_vid.size();i++)
                 {
-                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Org_study, study_vid[i], std::string_view((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])));
-                    txn.put_edge(study_vid[i], (label_t)snb::EdgeSchema::Org2Person_study, study_vid[i], std::string_view((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])));
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Org_study, study_vid[i], std::string_view((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])), false);
+                    txn.put_edge(study_vid[i], (label_t)snb::EdgeSchema::Org2Person_study, study_vid[i], std::string_view((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])), false);
                 }
                 for(size_t i=0;i<work_vid.size();i++)
                 {
-                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Org_work, work_vid[i], std::string_view((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])));
-                    txn.put_edge(work_vid[i], (label_t)snb::EdgeSchema::Org2Person_work, work_vid[i], std::string_view((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])));
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Org_work, work_vid[i], std::string_view((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])), false);
+                    txn.put_edge(work_vid[i], (label_t)snb::EdgeSchema::Org2Person_work, work_vid[i], std::string_view((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])), false);
                 }
                 txn.commit();
                 break;
@@ -2356,8 +2356,8 @@ public:
             if(!txn.get_vertex(post_vid).data()) return;
             try
             {
-                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_like, post_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
-                txn.put_edge(post_vid, (label_t)snb::EdgeSchema::Post2Person_like, person_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_like, post_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
+                txn.put_edge(post_vid, (label_t)snb::EdgeSchema::Post2Person_like, person_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
 
                 txn.commit();
                 break;
@@ -2382,8 +2382,8 @@ public:
             if(!txn.get_vertex(comment_vid).data()) return;
             try
             {
-                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_like, comment_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
-                txn.put_edge(comment_vid, (label_t)snb::EdgeSchema::Comment2Person_like, person_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_like, comment_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
+                txn.put_edge(comment_vid, (label_t)snb::EdgeSchema::Comment2Person_like, person_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
 
                 txn.commit();
                 break;
@@ -2413,11 +2413,11 @@ public:
                 vid = txn.new_vertex();
                 forumSchema.insertId(request.forumId, vid);
                 txn.put_vertex(vid, std::string_view(forum_buf.data(), forum_buf.size()));
-                txn.put_edge(moderator_vid, (label_t)snb::EdgeSchema::Person2Forum_moderator, vid, std::string_view());
+                txn.put_edge(moderator_vid, (label_t)snb::EdgeSchema::Person2Forum_moderator, vid, std::string_view(), false);
                 for(auto tag:tag_vid)
                 {
-                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Forum2Tag, tag, std::string_view());
-                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Forum, vid, std::string_view());
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Forum2Tag, tag, std::string_view(), false);
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Forum, vid, std::string_view(), false);
                 }
 
                 txn.commit();
@@ -2456,8 +2456,8 @@ public:
                 *(uint64_t*)buf.data() = request.joinDate;
                 *(uint64_t*)(buf.data()+sizeof(uint64_t)) = posts;
 
-                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Forum_member, forum_vid, std::string_view(buf.data(), buf.size()));
-                txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Person_member, person_vid, std::string_view(buf.data(), buf.size()));
+                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Forum_member, forum_vid, std::string_view(buf.data(), buf.size()), false);
+                txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Person_member, person_vid, std::string_view(buf.data(), buf.size()), false);
 
                 txn.commit();
                 break;
@@ -2507,9 +2507,9 @@ public:
                         nbrs.next();
                     }
                     for(auto p:edges) txn.del_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, p.first);
-                    txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                    txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
                     std::reverse(edges.begin(), edges.end());
-                    for(auto p:edges) txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, p.first, std::string_view((char*)&p.second, sizeof(p.second)));
+                    for(auto p:edges) txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, p.first, std::string_view((char*)&p.second, sizeof(p.second)), false);
                 }
 
                 {
@@ -2523,12 +2523,12 @@ public:
                     }
                 }
 
-                txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Post, vid, std::string_view());
+                txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Post, vid, std::string_view(), false);
 
                 for(auto tag:tag_vid)
                 {
-                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Post2Tag, tag, std::string_view());
-                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Post, vid, std::string_view());
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Post2Tag, tag, std::string_view(), false);
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Post, vid, std::string_view(), false);
                 }
 
                 txn.commit();
@@ -2581,9 +2581,9 @@ public:
                         nbrs.next();
                     }
                     for(auto p:edges) txn.del_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, p.first);
-                    txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                    txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
                     std::reverse(edges.begin(), edges.end());
-                    for(auto p:edges) txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, p.first, std::string_view((char*)&p.second, sizeof(p.second)));
+                    for(auto p:edges) txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, p.first, std::string_view((char*)&p.second, sizeof(p.second)), false);
                 }
 
                 {
@@ -2597,9 +2597,9 @@ public:
                         nbrs.next();
                     }
                     for(auto p:edges) txn.del_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, p.first);
-                    txn.put_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                    txn.put_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)), false);
                     std::reverse(edges.begin(), edges.end());
-                    for(auto p:edges) txn.put_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, p.first, std::string_view((char*)&p.second, sizeof(p.second)));
+                    for(auto p:edges) txn.put_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, p.first, std::string_view((char*)&p.second, sizeof(p.second)), false);
                 }
 
                 {
@@ -2616,8 +2616,8 @@ public:
 
                 for(auto tag:tag_vid)
                 {
-                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Comment2Tag, tag, std::string_view());
-                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Comment, vid, std::string_view());
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Comment2Tag, tag, std::string_view(), false);
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Comment, vid, std::string_view(), false);
                 }
 
                 txn.commit();
@@ -2671,8 +2671,8 @@ public:
                 *(uint64_t*)buf.data() = request.creationDate;
                 *(double*)(buf.data()+sizeof(uint64_t)) = weight;
 
-                txn.put_edge(left, (label_t)snb::EdgeSchema::Person2Person, right, std::string_view(buf.data(), buf.size()));
-                txn.put_edge(right, (label_t)snb::EdgeSchema::Person2Person, left, std::string_view(buf.data(), buf.size()));
+                txn.put_edge(left, (label_t)snb::EdgeSchema::Person2Person, right, std::string_view(buf.data(), buf.size()), false);
+                txn.put_edge(right, (label_t)snb::EdgeSchema::Person2Person, left, std::string_view(buf.data(), buf.size()), false);
 
                 txn.commit();
                 break;
@@ -2718,7 +2718,7 @@ int main(int argc, char** argv)
     std::string dataPath = argv[2];
     int port = std::stoi(argv[3]);
 
-    graph = new Graph(graphPath+"/graph.mmap", graphPath+"graph.wal");
+    graph = new Graph(graphPath+"/graph.mmap", graphPath+"/graph.wal", graphPath+"/graph.save");
 
     rocksdb::DB *rocksdb_db;
     rocksdb::Options options;
