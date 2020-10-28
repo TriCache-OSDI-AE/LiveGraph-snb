@@ -78,7 +78,7 @@ std::vector<std::string> static parallel_readlines(const std::string &path)
     {
         if(i == 0)
         {
-            ret[i] = std::string(data, positions[i]-1);
+            ret[i] = std::string(data, positions[i]);
         }
         else if(positions[i-1]+1 <= positions[i]-1)
         {
