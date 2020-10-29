@@ -12,29 +12,29 @@
 namespace snb
 {
     typedef std::vector<char> Buffer;
-    enum class VertexSchema : int64_t
+    enum class VertexSchema : uint32_t
     {
-        person,
-        place,
-        org,
-        message,
-        tag,
-        tagclass,
-        forum
+        Person,
+        Place,
+        Org,
+        Message,
+        Tag,
+        TagClass,
+        Forum
     };
+    const std::string key_spacing="_+)(*&^%$#@!)";
 
     class Schema
     {
-    private:
+    public:
         rocksdb::DB* db;
         rocksdb::ColumnFamilyHandle* vindex;
         rocksdb::ColumnFamilyHandle* rvindex;
         rocksdb::ColumnFamilyHandle* nameindex;
         rocksdb::ReadOptions read_options;
         rocksdb::WriteOptions write_options;
-    public:
         void insertId(uint64_t id, uint64_t vid)
-        {   
+        {
             rocksdb::Slice key((char *)&id, sizeof(id));
             rocksdb::Slice val((char *)&vid, sizeof(vid));
             db->Put(write_options, vindex, key, val);
@@ -60,7 +60,7 @@ namespace snb
         }
 
         void insertName(std::string name, uint64_t vid)
-        {   
+        {
             rocksdb::Slice key(name);
             rocksdb::Slice val((char *)&vid, sizeof(vid));
             db->Put(write_options, nameindex, key, val);
@@ -93,7 +93,6 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
-            uint64_t place;
             uint64_t creationDate;
             uint32_t birthday;
             uint16_t lastName_offset;
@@ -163,7 +162,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createPerson(uint64_t id, std::string firstName, std::string lastName, std::string gender, uint32_t birthday, std::vector<std::string> emails, std::vector<std::string> speaks, std::string browserUsed, std::string locationIP, uint64_t creationDate, uint64_t place)
+        Buffer static createPerson(uint64_t id, std::string firstName, std::string lastName, std::string gender, uint32_t birthday, std::vector<std::string> emails, std::vector<std::string> speaks, std::string browserUsed, std::string locationIP, uint64_t creationDate)
         {
             size_t size = sizeof(Person);
             size += firstName.length();
@@ -176,9 +175,8 @@ namespace snb
 
             Buffer buf(size);
             Person *person = (Person *)buf.data();
-            person->vtype = VertexSchema::person;
+            person->vtype = VertexSchema::Person;
             person->id = id;
-            person->place = place;
             person->creationDate = creationDate;
             person->birthday = birthday;
 
@@ -195,7 +193,7 @@ namespace snb
             for(auto email:emails)
             {
                 memcpy(person->data+offset, email.c_str(), email.length());
-                offset += email.length(); 
+                offset += email.length();
                 person->data[offset++] = '\000';
             }
             person->speaks_offset = offset;
@@ -203,7 +201,7 @@ namespace snb
             for(auto speak:speaks)
             {
                 memcpy(person->data+offset, speak.c_str(), speak.length());
-                offset += speak.length(); 
+                offset += speak.length();
                 person->data[offset++] = '\000';
             }
             person->browserUsed_offset = offset;
@@ -237,16 +235,16 @@ namespace snb
         struct Place
         {
             VertexSchema vtype;
-            uint64_t id;
-            uint64_t isPartOf;
-            uint16_t url_offset;
-            uint16_t length;
-            enum class Type : char
+            enum class Type : uint32_t
             {
                 City,
                 Country,
-                Continent
+                Continent,
+                Error
             } type;
+            uint64_t id;
+            uint16_t url_offset;
+            uint16_t length;
             char data[0];
 
             const char* name() const
@@ -267,7 +265,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createPlace(uint64_t id, std::string name, std::string url, Place::Type type, uint64_t isPartOf)
+        Buffer static createPlace(uint64_t id, std::string name, std::string url, Place::Type type)
         {
             size_t size = sizeof(Place);
             size += name.length();
@@ -275,10 +273,9 @@ namespace snb
 
             Buffer buf(size);
             Place *place = (Place *)buf.data();
-            place->vtype = VertexSchema::place;
-            place->id = id;
-            place->isPartOf = isPartOf;
+            place->vtype = VertexSchema::Place;
             place->type = type;
+            place->id = id;
 
             uint16_t offset = 0;
             memcpy(place->data+offset, name.c_str(), name.length());
@@ -308,15 +305,15 @@ namespace snb
         struct Org
         {
             VertexSchema vtype;
-            uint64_t id;
-            uint64_t place;
-            uint16_t url_offset;
-            uint16_t length;
-            enum class Type : char
+            enum class Type : uint32_t
             {
                 Company,
-                University
+                University,
+                Error
             } type;
+            uint64_t id;
+            uint16_t url_offset;
+            uint16_t length;
             char data[0];
 
             const char* name() const
@@ -337,7 +334,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createOrg(uint64_t id, Org::Type type, std::string name, std::string url, uint64_t place)
+        Buffer static createOrg(uint64_t id, Org::Type type, std::string name, std::string url)
         {
             size_t size = sizeof(Org);
             size += name.length();
@@ -345,10 +342,9 @@ namespace snb
 
             Buffer buf(size);
             Org *org = (Org *)buf.data();
-            org->vtype = VertexSchema::org;
-            org->id = id;
-            org->place = place;
+            org->vtype = VertexSchema::Org;
             org->type = type;
+            org->id = id;
 
             uint16_t offset = 0;
             memcpy(org->data+offset, name.c_str(), name.length());
@@ -378,23 +374,19 @@ namespace snb
         struct Message
         {
             VertexSchema vtype;
+            enum class Type : uint32_t
+            {
+                Comment,
+                Post,
+                Error
+            } type;
             uint64_t id;
             uint64_t creationDate;
-            uint64_t creator;
-            uint64_t forumid;
-            uint64_t place;
-            uint64_t replyOfPost;
-            uint64_t replyOfComment;
             uint16_t locationIP_offset;
             uint16_t browserUsed_offset;
             uint16_t language_offset;
             uint16_t content_offset;
             uint16_t length;
-            enum class Type : char
-            {
-                Comment,
-                Post
-            } type;
             char data[0];
 
             const char* imageFile() const
@@ -439,7 +431,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createMessage(uint64_t id, std::string imageFile, uint64_t creationDate, std::string locationIP, std::string browserUsed, std::string language, std::string content, uint64_t creator, uint64_t forumid, uint64_t place, uint64_t replyOfPost, uint64_t replyOfComment, Message::Type type)
+        Buffer static createMessage(uint64_t id, std::string imageFile, uint64_t creationDate, std::string locationIP, std::string browserUsed, std::string language, std::string content, Message::Type type)
         {
             size_t size = sizeof(Message);
             size += imageFile.length();
@@ -450,15 +442,10 @@ namespace snb
 
             Buffer buf(size);
             Message *message = (Message *)buf.data();
-            message->vtype = VertexSchema::message;
+            message->vtype = VertexSchema::Message;
+            message->type = type;
             message->id = id;
             message->creationDate = creationDate;
-            message->creator = creator;
-            message->forumid = forumid;
-            message->place = place;
-            message->replyOfPost = replyOfPost;
-            message->replyOfComment = replyOfComment;
-            message->type = type;
 
             uint16_t offset = 0;
             memcpy(message->data+offset, imageFile.c_str(), imageFile.length());
@@ -498,7 +485,6 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
-            uint64_t hasType;
             uint16_t url_offset;
             uint16_t length;
             char data[0];
@@ -521,7 +507,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createTag(uint64_t id, std::string name, std::string url, uint64_t hasType)
+        Buffer static createTag(uint64_t id, std::string name, std::string url)
         {
             size_t size = sizeof(Tag);
             size += name.length();
@@ -529,9 +515,8 @@ namespace snb
 
             Buffer buf(size);
             Tag *tag = (Tag *)buf.data();
-            tag->vtype = VertexSchema::tag;
+            tag->vtype = VertexSchema::Tag;
             tag->id = id;
-            tag->hasType = hasType;
 
             uint16_t offset = 0;
             memcpy(tag->data+offset, name.c_str(), name.length());
@@ -562,7 +547,6 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
-            uint64_t isSubclassOf;
             uint16_t url_offset;
             uint16_t length;
             char data[0];
@@ -585,7 +569,7 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createTagClass(uint64_t id, std::string name, std::string url, uint64_t isSubclassOf)
+        Buffer static createTagClass(uint64_t id, std::string name, std::string url)
         {
             size_t size = sizeof(TagClass);
             size += name.length();
@@ -593,9 +577,8 @@ namespace snb
 
             Buffer buf(size);
             TagClass *tagclass = (TagClass *)buf.data();
-            tagclass->vtype = VertexSchema::tagclass;
+            tagclass->vtype = VertexSchema::TagClass;
             tagclass->id = id;
-            tagclass->isSubclassOf = isSubclassOf;
 
             uint16_t offset = 0;
             memcpy(tagclass->data+offset, name.c_str(), name.length());
@@ -627,7 +610,6 @@ namespace snb
             VertexSchema vtype;
             uint64_t id;
             uint64_t creationDate;
-            uint64_t moderator;
             uint16_t length;
             char data[0];
 
@@ -641,17 +623,16 @@ namespace snb
             }
         };// __attribute__((packed));
 
-        Buffer static createForum(uint64_t id, std::string title, uint64_t creationDate, uint64_t moderator)
+        Buffer static createForum(uint64_t id, std::string title, uint64_t creationDate)
         {
             size_t size = sizeof(Forum);
             size += title.length();
 
             Buffer buf(size);
             Forum *forum = (Forum *)buf.data();
-            forum->vtype = VertexSchema::forum;
+            forum->vtype = VertexSchema::Forum;
             forum->id = id;
             forum->creationDate = creationDate;
-            forum->moderator = moderator;
 
             uint16_t offset = 0;
             memcpy(forum->data+offset, title.c_str(), title.length());
@@ -675,15 +656,15 @@ namespace snb
     enum class EdgeSchema : int16_t
     {
         Forum2Post,                //imported
-        //Post2Forum,              //inlined
-        //Message2Person_creator,  //DateTime, inlined
-        Person2Post_creator,       //DateTime, imported
-        Person2Comment_creator,    //DateTime, imported
+        Post2Forum,                //imported
+        Message2Person_creator,    //DelDateTime, imported
+        Person2Post_creator,       //DelDateTime, imported
+        Person2Comment_creator,    //DelDateTime, imported
         Person2Tag,                //imported
         Tag2Person,                //imported
-        Forum2Person_member,       //DateTime(unordered), uint64_t, imported
-        Person2Forum_member,       //DateTime(unordered), uint64_t, imported
-        //Forum2Person_moderator,  //inlined
+        Forum2Person_member,       //DateTime(unordered), imported
+        Person2Forum_member,       //DateTime(unordered), imported
+        Forum2Person_moderator,    //imported
         Person2Forum_moderator,    //imported
         Post2Tag,                  //imported
         Tag2Post,                  //imported
@@ -691,26 +672,29 @@ namespace snb
         Tag2Comment,               //imported
         Forum2Tag,                 //imported
         Tag2Forum,                 //imported
-        //Tag2TagClass,            //inlined
+        Tag2TagClass,              //imported
         TagClass2Tag,              //imported
         Place2Place_down,          //imported
-        //Place2Place_up,          //inlined
-        //Person2Place,            //inlined
+        Place2Place_up,            //imported
+        Person2Place,              //imported
         Place2Person,              //imported
-        //Org2Place,               //inlined
+        Org2Place,                 //imported
         Place2Org,                 //imported
-        //TagClass2TagClass_up,    //inlined
+        TagClass2TagClass_up,      //imported
         TagClass2TagClass_down,    //imported
-        Person2Person,             //DateTime(unordered), double, imported
+        Person2Person,             //DateTime(unordered), imported
         Person2Post_like,          //DateTime(unordered), imported
         Post2Person_like,          //DateTime(unordered), imported
         Person2Comment_like,       //DateTime(unordered), imported
         Comment2Person_like,       //DateTime(unordered), imported
-        //Message2Message_up,      //DateTime, inlined
-        Message2Message_down,      //DateTime, imported
+        Message2Message_up,        //imported
+        Message2Message_down,      //imported
         Person2Org_study,          //Year(unordered), imported
         Org2Person_study,          //Year(unordered), imported
         Person2Org_work,           //Year(unordered), imported
         Org2Person_work,           //Year(unordered), imported
+        Message2Place,             //imported
+        Place2Post,                //imported
+        Place2Comment              //imported
     };
 }

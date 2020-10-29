@@ -74,5 +74,8 @@ add_subdirectory(${PROJECT_DEPS_DIR}/LiveGraph)
 
 add_executable(snb_server src/server.cpp ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
 
+#remove deprecated warning
+target_compile_definitions(snb_server PRIVATE -DHAS_UNCAUGHT_EXCEPTIONS=1)
+
 target_link_libraries(snb_server Threads::Threads ${TBB_LIBRARIES} rocksdb.a snappy.a zstd.a thrift.a livegraph)
 add_dependencies(snb_server rocksdblib)
