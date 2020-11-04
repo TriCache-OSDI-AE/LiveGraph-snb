@@ -31,7 +31,7 @@
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TBufferTransports.h>
 
-#include "empty.hpp"
+#include "neo4j.hpp"
 
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::concurrency;
@@ -680,7 +680,6 @@ int main(int argc, char** argv)
             pool.emplace_back(importRawEdge,std::ref(personSchema),  std::ref(placeSchema),   snb::EdgeSchema::Person2Place,          snb::EdgeSchema::Place2Person,          dataPath+snb::personIsLocatedInPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(orgSchema),     std::ref(placeSchema),   snb::EdgeSchema::Org2Place,             snb::EdgeSchema::Place2Org,             dataPath+snb::orgIsLocatedInPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(tagclassSchema),std::ref(tagclassSchema),snb::EdgeSchema::TagClass2TagClass_up,  snb::EdgeSchema::TagClass2TagClass_down,dataPath+snb::tagClassIsSubclassOfPathSuffix);
-            pool.emplace_back(importRawEdge,std::ref(tagclassSchema),std::ref(tagclassSchema),snb::EdgeSchema::TagClass2TagClass_up,  snb::EdgeSchema::TagClass2TagClass_down,dataPath+snb::tagClassIsSubclassOfPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(postSchema),    snb::EdgeSchema::Message2Message_up,    snb::EdgeSchema::Message2Message_down,  dataPath+snb::commentReplyOfPostPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(commentSchema), snb::EdgeSchema::Message2Message_up,    snb::EdgeSchema::Message2Message_down,  dataPath+snb::commentReplyOfCommentPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(placeSchema),   snb::EdgeSchema::Message2Place,         snb::EdgeSchema::Place2Comment,         dataPath+snb::commentIsLocatedInPathSuffix);
@@ -745,6 +744,9 @@ int main(int argc, char** argv)
     delete ::server;
     ::server = nullptr;
     
+    //auto ih = InteractiveHandler(graph, personSchema, placeSchema, orgSchema, postSchema, commentSchema, tagSchema, tagclassSchema, forumSchema);
+    //ih.test();
+
     delete graph;
     for(auto p:handles)
     {
