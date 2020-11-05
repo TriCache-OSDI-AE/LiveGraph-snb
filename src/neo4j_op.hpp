@@ -172,13 +172,13 @@ template <typename LeftInputType, typename RightInputType>
 class CartesianProduct
 {
     std::vector<typename RightInputType::type> right_data; //order by left, right
-    LeftInputType left;
-    RightInputType right;
+    LeftInputType &left;
+    RightInputType &right;
 
 public:
     using type = utils::tuple_cat_t<typename LeftInputType::type, typename RightInputType::type>;
 
-    CartesianProduct(const LeftInputType &_left, const RightInputType &_right) 
+    CartesianProduct(LeftInputType &_left, RightInputType &_right) 
         : left(_left), right(_right) 
     {
     }
@@ -207,13 +207,13 @@ public:
 template <typename InputType, typename ProjectionFuncType>
 class Projection
 {
-    InputType input;
+    InputType &input;
     ProjectionFuncType projection_func;
 
 public:
     using type = std::invoke_result_t<ProjectionFuncType, typename InputType::type>;
 
-    Projection(const InputType &_input, const ProjectionFuncType &_projection_func) 
+    Projection(InputType &_input, const ProjectionFuncType &_projection_func) 
         : input(_input), projection_func(_projection_func) 
     {
     }
@@ -234,7 +234,7 @@ public:
 template <typename InputType, typename KeyFuncType, typename CompareFuncType>
 class Top
 {
-    InputType input;
+    InputType &input;
     KeyFuncType key_func;
     CompareFuncType compare_func;
     const uint64_t max_size;
@@ -244,7 +244,7 @@ class Top
 public:
     using type = typename InputType::type;
 
-    Top(const InputType &_input, const KeyFuncType &_key_func, const CompareFuncType &_compare_func, const uint64_t &_max_size) 
+    Top(InputType &_input, const KeyFuncType &_key_func, const CompareFuncType &_compare_func, const uint64_t &_max_size) 
         : input(_input), key_func(_key_func), compare_func(_compare_func), max_size(_max_size), store(compare_func)
     {
     }
@@ -272,13 +272,13 @@ public:
 template <typename InputType, typename FilterFuncType>
 class Filter
 {
-    InputType input;
+    InputType &input;
     FilterFuncType filter_func;
 
 public:
     using type = typename InputType::type;
 
-    Filter(const InputType &_input, const FilterFuncType &_filter_func) 
+    Filter(InputType &_input, const FilterFuncType &_filter_func) 
         : input(_input), filter_func(_filter_func) 
     {
     }
@@ -300,14 +300,14 @@ public:
 template <typename InputType>
 class Limit
 {
-    InputType input;
+    InputType &input;
     const uint64_t limit;
     uint64_t count;
 
 public:
     using type = typename InputType::type;
 
-    Limit(const InputType &_input, const uint64_t &_limit) 
+    Limit(InputType &_input, const uint64_t &_limit) 
         : input(_input), limit(_limit), count()
     {
     }
@@ -330,13 +330,13 @@ public:
 template <typename InputType>
 class Optional
 {
-    InputType input;
+    InputType &input;
     bool exist;
 
 public:
     using type = typename InputType::type;
 
-    Optional(const InputType &_input) 
+    Optional(InputType &_input) 
         : input(_input), exist(false)
     {
     }
@@ -361,7 +361,7 @@ public:
 template <typename InputType, typename KeyFuncType, typename InitFuncType, typename MergeFuncType, typename ReturnAggFuncType>
 class OrderedAggragation
 {
-    InputType input;
+    InputType &input;
     KeyFuncType key_func;
     InitFuncType init_func;
     MergeFuncType merge_func;
@@ -375,7 +375,7 @@ class OrderedAggragation
 public:
     using type = utils::tuple_cat_t<key_type, std::invoke_result_t<ReturnAggFuncType, value_type>>;
 
-    OrderedAggragation(const InputType &_input, const KeyFuncType &_key_func, const InitFuncType &_init_func, const MergeFuncType &_merge_func, const ReturnAggFuncType &_return_agg_func) 
+    OrderedAggragation(InputType &_input, const KeyFuncType &_key_func, const InitFuncType &_init_func, const MergeFuncType &_merge_func, const ReturnAggFuncType &_return_agg_func) 
         : input(_input), key_func(_key_func), init_func(_init_func), merge_func(_merge_func), return_agg_func(_return_agg_func), first(true), current(), aggragation()
     {
     }
@@ -417,7 +417,7 @@ public:
 template <typename InputType, typename KeyFuncType, typename InitFuncType, typename MergeFuncType, typename ReturnAggFuncType>
 class EagerAggragation
 {
-    InputType input;
+    InputType &input;
     KeyFuncType key_func;
     InitFuncType init_func;
     MergeFuncType merge_func;
@@ -429,7 +429,7 @@ class EagerAggragation
 public:
     using type = utils::tuple_cat_t<key_type, std::invoke_result_t<ReturnAggFuncType, value_type>>;
 
-    EagerAggragation(const InputType &_input, const KeyFuncType &_key_func, const InitFuncType &_init_func, const MergeFuncType &_merge_func, const ReturnAggFuncType &_return_agg_func) 
+    EagerAggragation(InputType &_input, const KeyFuncType &_key_func, const InitFuncType &_init_func, const MergeFuncType &_merge_func, const ReturnAggFuncType &_return_agg_func) 
         : input(_input), key_func(_key_func), init_func(_init_func), merge_func(_merge_func), return_agg_func(_return_agg_func), store() 
     {
     }
@@ -464,7 +464,7 @@ public:
 template <typename InputType, typename KeyFuncType, typename CompareFuncType>
 class Sort
 {
-    InputType input;
+    InputType &input;
     KeyFuncType key_func;
     CompareFuncType compare_func;
     using key_type = std::invoke_result_t<KeyFuncType, typename InputType::type>;
@@ -473,7 +473,7 @@ class Sort
 public:
     using type = typename InputType::type;
 
-    Sort(const InputType &_input, const KeyFuncType &_key_func, const CompareFuncType &_compare_func) 
+    Sort(InputType &_input, const KeyFuncType &_key_func, const CompareFuncType &_compare_func) 
         : input(_input), key_func(_key_func), compare_func(_compare_func), store()
     {
     }
@@ -502,7 +502,7 @@ public:
 template <typename InputType, typename OrderedKeyFuncType, typename KeyFuncType, typename CompareFuncType>
 class PartialSort
 {
-    InputType input;
+    InputType &input;
     OrderedKeyFuncType ordered_key_func;
     KeyFuncType key_func;
     CompareFuncType compare_func;
@@ -515,7 +515,7 @@ class PartialSort
 public:
     using type = typename InputType::type;
 
-    PartialSort(const InputType &_input, const OrderedKeyFuncType &_ordered_key_func, const KeyFuncType &_key_func, const CompareFuncType &_compare_func) 
+    PartialSort(InputType &_input, const OrderedKeyFuncType &_ordered_key_func, const KeyFuncType &_key_func, const CompareFuncType &_compare_func) 
         : input(_input), ordered_key_func(_ordered_key_func), key_func(_key_func), compare_func(_compare_func), current(), first(true), store()
     {
     }
@@ -564,7 +564,7 @@ public:
 template <typename InputType, typename KeyFuncType>
 class Distinct
 {
-    InputType input;
+    InputType &input;
     KeyFuncType key_func;
     using key_type = std::invoke_result_t<KeyFuncType, typename InputType::type>;
     std::unordered_set<key_type, utils::hash<key_type>> store;
@@ -572,7 +572,7 @@ class Distinct
 public:
     using type = key_type;
 
-    Distinct(const InputType &_input, const KeyFuncType &_key_func) 
+    Distinct(InputType &_input, const KeyFuncType &_key_func) 
         : input(_input), key_func(_key_func), store() 
     {
     }
@@ -603,8 +603,8 @@ public:
 template <typename LeftInputType, typename RightInputType, typename LeftKeyFuncType, typename RightKeyFuncType>
 class HashJoin
 {
-    LeftInputType left;
-    RightInputType right;
+    LeftInputType &left;
+    RightInputType &right;
     LeftKeyFuncType left_key_func;
     RightKeyFuncType right_key_func;
     using key_type = std::invoke_result_t<LeftKeyFuncType, typename LeftInputType::type>;
@@ -615,7 +615,7 @@ class HashJoin
 public:
     using type = utils::tuple_cat_t<typename LeftInputType::type, typename RightInputType::type>;
 
-    HashJoin(const LeftInputType &_left, const RightInputType &_right, const LeftKeyFuncType &_left_key_func, const RightKeyFuncType &_right_key_func) 
+    HashJoin(LeftInputType &_left, RightInputType &_right, const LeftKeyFuncType &_left_key_func, const RightKeyFuncType &_right_key_func) 
         :left(_left), right(_right), left_key_func(_left_key_func), right_key_func(_right_key_func), store()
     {
     }
@@ -649,13 +649,13 @@ public:
 template <typename InputType, typename CacheFuncType>
 class CacheProperties
 {
-    InputType input;
+    InputType &input;
     CacheFuncType cache_func;
 
 public:
     using type = std::invoke_result_t<CacheFuncType, typename InputType::type>;
 
-    CacheProperties(const InputType &_input, const CacheFuncType &_cache_func) 
+    CacheProperties(InputType &_input, const CacheFuncType &_cache_func) 
         : input(_input), cache_func(_cache_func) 
     {
     }
@@ -681,7 +681,7 @@ class Argument
 public:
     using type = std::invoke_result_t<ArgumentFuncType, typename LeftInputType::type>;
 
-    Argument(const LeftInputType &, const ArgumentFuncType &_arg_func)
+    Argument(LeftInputType &, const ArgumentFuncType &_arg_func)
         : arg_func(_arg_func) 
     {
     }
@@ -701,15 +701,15 @@ public:
 template <typename LeftInputType, typename RightInputType, typename CombineFuncType> 
 class Apply
 {
-    LeftInputType left;
-    RightInputType right;
+    LeftInputType &left;
+    RightInputType &right;
     CombineFuncType combine_func;
     typename LeftInputType::type current;
 
 public:
     using type = std::invoke_result_t<CombineFuncType, typename LeftInputType::type, typename RightInputType::type>;
 
-    Apply(const LeftInputType &_left, const RightInputType &_right, const CombineFuncType &_combine_func) 
+    Apply(LeftInputType &_left, RightInputType &_right, const CombineFuncType &_combine_func) 
         : left(_left), right(_right), combine_func(_combine_func), current()
     {
     }
@@ -734,14 +734,14 @@ public:
 template <typename LeftInputType, typename RightInputType> 
 class SemiApply
 {
-    LeftInputType left;
-    RightInputType right;
+    LeftInputType &left;
+    RightInputType &right;
     bool exist;
 
 public:
     using type = typename LeftInputType::type;
 
-    SemiApply(const LeftInputType &_left, const RightInputType &_right) 
+    SemiApply(LeftInputType &_left, RightInputType &_right) 
         : left(_left), right(_right), exist()
     {
     }
@@ -769,14 +769,14 @@ public:
 template <typename LeftInputType, typename RightInputType> 
 class AntiSemiApply
 {
-    LeftInputType left;
-    RightInputType right;
+    LeftInputType &left;
+    RightInputType &right;
     bool exist;
 
 public:
     using type = typename LeftInputType::type;
 
-    AntiSemiApply(const LeftInputType &_left, const RightInputType &_right) 
+    AntiSemiApply(LeftInputType &_left, RightInputType &_right) 
         : left(_left), right(_right), exist()
     {
     }
@@ -804,7 +804,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class ExpandAll
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -816,11 +816,11 @@ class ExpandAll
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<path_type, uint64_t>>;
 
-    ExpandAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes)
+    ExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes)
     {
     }
-    ExpandAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype)
+    ExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype)
         : input(_input), select_func(_select_func), txn(_txn), etypes({_etype})
     {
     }
@@ -850,7 +850,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class VarLengthExpandAll
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -864,11 +864,11 @@ class VarLengthExpandAll
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<path_type>, uint64_t>>;
 
-    VarLengthExpandAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_min_hops, const uint64_t &_max_hops)
+    VarLengthExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_min_hops, const uint64_t &_max_hops)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes), min_hops(_min_hops), max_hops(_max_hops)
     {
     }
-    VarLengthExpandAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype, const uint64_t &_min_hops, const uint64_t &_max_hops)
+    VarLengthExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype, const uint64_t &_min_hops, const uint64_t &_max_hops)
         : input(_input), select_func(_select_func), txn(_txn), etypes({_etype}), min_hops(_min_hops), max_hops(_max_hops)
     {
     }
@@ -924,7 +924,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class VarLengthExpandPruning
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -940,11 +940,11 @@ class VarLengthExpandPruning
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<path_type>, uint64_t>>;
 
-    VarLengthExpandPruning(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_min_hops, const uint64_t &_max_hops)
+    VarLengthExpandPruning(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_min_hops, const uint64_t &_max_hops)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes), min_hops(_min_hops), max_hops(_max_hops), store()
     {
     }
-    VarLengthExpandPruning(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype, const uint64_t &_min_hops, const uint64_t &_max_hops)
+    VarLengthExpandPruning(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype, const uint64_t &_min_hops, const uint64_t &_max_hops)
         : input(_input), select_func(_select_func), txn(_txn), etypes({_etype}), min_hops(_min_hops), max_hops(_max_hops), store()
     {
     }
@@ -1006,7 +1006,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class ExpandInto
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -1018,11 +1018,11 @@ class ExpandInto
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<path_type>>;
 
-    ExpandInto(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes)
+    ExpandInto(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes)
     {
     }
-    ExpandInto(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype)
+    ExpandInto(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype)
         : input(_input), select_func(_select_func), txn(_txn), etypes({_etype})
     {
     }
@@ -1056,7 +1056,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class OptionalExpandAll
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -1070,11 +1070,11 @@ class OptionalExpandAll
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<path_type, uint64_t>>;
 
-    OptionalExpandAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes)
+    OptionalExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes), exist(false)
     {
     }
-    OptionalExpandAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype)
+    OptionalExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const label_t &_etype)
         : input(_input), select_func(_select_func), txn(_txn), etypes({_etype}), exist(false)
     {
     }
@@ -1108,7 +1108,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class ShortestPath
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -1121,7 +1121,7 @@ class ShortestPath
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<uint64_t>, std::vector<path_type>>>;
 
-    ShortestPath(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
+    ShortestPath(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
         : input(_input), select_func(_select_func), txn(_txn), etype(_etype), max_hops(_max_hops)
     {
     }
@@ -1236,7 +1236,7 @@ public:
 template <typename InputType, typename SelectFunc> 
 class ShortestPathAll
 {
-    InputType input;
+    InputType &input;
     SelectFunc select_func;
 
     Transaction & txn;
@@ -1249,7 +1249,7 @@ class ShortestPathAll
 public:
     using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<uint64_t>, std::vector<path_type>>>;
 
-    ShortestPathAll(const InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
+    ShortestPathAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
         : input(_input), select_func(_select_func), txn(_txn), etype(_etype), max_hops(_max_hops)
     {
     }
