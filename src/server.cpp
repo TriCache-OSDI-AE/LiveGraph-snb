@@ -535,6 +535,155 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
     }
 }
 
+void importMember(std::string path)
+{
+    auto all_dataEdges = parallel_readlines(path);
+
+    std::vector<std::vector<std::string>> dataEdge_vs;
+    for(size_t i=1;i<all_dataEdges.size();i++)
+    {
+        dataEdge_vs.emplace_back(split(all_dataEdges[i], csv_split));
+    }
+    all_dataEdges.clear();
+    tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
+        return a[2] < b[2];
+    });
+
+    std::vector<uint64_t> forum_ids(dataEdge_vs.size()), person_ids(dataEdge_vs.size());
+    #pragma omp parallel for
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto &dataEdge_v = dataEdge_vs[i];
+        forum_ids[i] = forumSchema.findId(std::stoull(dataEdge_v[0]));
+        person_ids[i] = personSchema.findId(std::stoull(dataEdge_v[1]));
+    }
+
+    std::vector<uint64_t> dataEdge_posts(dataEdge_vs.size());
+    #pragma omp parallel for
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto engine = graph->begin_read_only_transaction();
+        uint64_t forum_id = forum_ids[i];
+        uint64_t person_id = person_ids[i];
+        auto nbrs = engine.get_edges(person_id, (label_t)snb::EdgeSchema::Person2Post_creator);
+        uint64_t posts = 0;
+        while (nbrs.valid())
+        {
+            {
+                auto post_id = nbrs.dst_id();
+                auto nbrs = engine.get_edges(post_id, (label_t)snb::EdgeSchema::Post2Forum);
+                if(nbrs.dst_id() == forum_id) posts++;
+            }
+            nbrs.next();
+        }
+        dataEdge_posts[i] = posts;
+    }
+
+    auto loader = graph->begin_batch_loader();
+
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto &dataEdge_v = dataEdge_vs[i];
+        uint64_t forum_id = forum_ids[i];
+        uint64_t person_id = person_ids[i];
+        auto dateTime = from_time(dataEdge_v[2]);
+        snb::Buffer buf(sizeof(uint64_t)+sizeof(double));
+        *(uint64_t*)buf.data() = std::chrono::duration_cast<std::chrono::milliseconds>(dateTime.time_since_epoch()).count();
+        *(uint64_t*)(buf.data()+sizeof(uint64_t)) = dataEdge_posts[i];
+
+        loader.put_edge(forum_id, (label_t)snb::EdgeSchema::Forum2Person_member, person_id, std::string_view(buf.data(), buf.size()), true);
+        loader.put_edge(person_id, (label_t)snb::EdgeSchema::Person2Forum_member, forum_id, std::string_view(buf.data(), buf.size()), true);
+    }
+}
+
+void importKnows(std::string path)
+{
+    auto all_dataEdges = parallel_readlines(path);
+
+    std::vector<std::vector<std::string>> dataEdge_vs;
+    for(size_t i=1;i<all_dataEdges.size();i++)
+    {
+        dataEdge_vs.emplace_back(split(all_dataEdges[i], csv_split));
+    }
+    all_dataEdges.clear();
+    tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [](const std::vector<std::string>&a, const std::vector<std::string>&b){
+        return a[2] < b[2];
+    });
+
+    std::vector<uint64_t> x_vids(dataEdge_vs.size()), y_vids(dataEdge_vs.size());
+    #pragma omp parallel for
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto &dataEdge_v = dataEdge_vs[i];
+        x_vids[i] = personSchema.findId(std::stoull(dataEdge_v[0]));
+        y_vids[i] = personSchema.findId(std::stoull(dataEdge_v[1]));
+    }
+
+    std::vector<double> dataEdge_weight(dataEdge_vs.size());
+    #pragma omp parallel for
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto engine = graph->begin_read_only_transaction();
+        auto &dataEdge_v = dataEdge_vs[i];
+        uint64_t left = x_vids[i];
+        uint64_t right = y_vids[i];
+        double weight = 0;
+        {
+            auto nbrs = engine.get_edges(left, (label_t)snb::EdgeSchema::Person2Comment_creator);
+            while (nbrs.valid())
+            {
+                {
+                    auto comment_id = nbrs.dst_id();
+                    auto nbrs = engine.get_edges(comment_id, (label_t)snb::EdgeSchema::Message2Message_up);
+                    {
+                        auto rvid = nbrs.dst_id();
+                        auto reply = (snb::MessageSchema::Message*)engine.get_vertex(rvid).data();
+                        auto nbrs = engine.get_edges(rvid, (label_t)snb::EdgeSchema::Message2Person_creator);
+                        if(nbrs.dst_id() == right) weight += (reply->type == snb::MessageSchema::Message::Type::Post)?1.0:0.5;
+                    }
+                }
+                nbrs.next();
+            }
+
+        }
+        {
+            auto nbrs = engine.get_edges(right, (label_t)snb::EdgeSchema::Person2Comment_creator);
+            while (nbrs.valid())
+            {
+                {
+                    auto comment_id = nbrs.dst_id();
+                    auto nbrs = engine.get_edges(comment_id, (label_t)snb::EdgeSchema::Message2Message_up);
+                    {
+                        auto rvid = nbrs.dst_id();
+                        auto reply = (snb::MessageSchema::Message*)engine.get_vertex(rvid).data();
+                        auto nbrs = engine.get_edges(rvid, (label_t)snb::EdgeSchema::Message2Person_creator);
+                        if(nbrs.dst_id() == left) weight += (reply->type == snb::MessageSchema::Message::Type::Post)?1.0:0.5;
+                    }
+                }
+                nbrs.next();
+            }
+        }
+        dataEdge_weight[i] = weight;
+    }
+
+    auto loader = graph->begin_batch_loader();
+
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto &dataEdge_v = dataEdge_vs[i];
+        uint64_t x_vid = x_vids[i];
+        uint64_t y_vid = y_vids[i];
+        auto dateTime = from_time(dataEdge_v[2]);
+        snb::Buffer buf(sizeof(uint64_t)+sizeof(double));
+        *(uint64_t*)buf.data() = std::chrono::duration_cast<std::chrono::milliseconds>(dateTime.time_since_epoch()).count();
+        *(double*)(buf.data()+sizeof(uint64_t)) = dataEdge_weight[i];
+
+        loader.put_edge(x_vid, (label_t)snb::EdgeSchema::Person2Person, y_vid, std::string_view(buf.data(), buf.size()), true);
+        loader.put_edge(y_vid, (label_t)snb::EdgeSchema::Person2Person, x_vid, std::string_view(buf.data(), buf.size()), true);
+    }
+}
+
+
 class InteractiveCloneFactory : virtual public InteractiveIfFactory {
 public:
     virtual ~InteractiveCloneFactory() {}
@@ -699,18 +848,26 @@ int main(int argc, char** argv)
                 return buf;
             };
 
-                pool.emplace_back(importDataEdge, std::ref(forumSchema),  std::ref(personSchema),  snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
-                    dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, false);
-            pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
-                    dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, false);
+            // pool.emplace_back(importDataEdge, std::ref(forumSchema),  std::ref(personSchema),  snb::EdgeSchema::Forum2Person_member, snb::EdgeSchema::Person2Forum_member, 
+            //         dataPath+snb::forumHasMemberPathSuffix, DateTimeParser, true);
+            // pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(personSchema),  snb::EdgeSchema::Person2Person,       snb::EdgeSchema::Person2Person, 
+            //         dataPath+snb::personKnowsPersonPathSuffix, DateTimeParser, true);
             pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(postSchema),    snb::EdgeSchema::Person2Post_like,    snb::EdgeSchema::Post2Person_like, 
-                    dataPath+snb::personLikePostPathSuffix, DateTimeParser, false);
+                    dataPath+snb::personLikePostPathSuffix, DateTimeParser, true);
             pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(commentSchema), snb::EdgeSchema::Person2Comment_like, snb::EdgeSchema::Comment2Person_like, 
-                    dataPath+snb::personLikeCommentPathSuffix, DateTimeParser, false);
+                    dataPath+snb::personLikeCommentPathSuffix, DateTimeParser, true);
             pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_study,    snb::EdgeSchema::Org2Person_study, 
-                    dataPath+snb::personStudyAtOrgPathSuffix, YearParser, false);
+                    dataPath+snb::personStudyAtOrgPathSuffix, YearParser, true);
             pool.emplace_back(importDataEdge, std::ref(personSchema), std::ref(orgSchema),     snb::EdgeSchema::Person2Org_work,     snb::EdgeSchema::Org2Person_work, 
-                    dataPath+snb::personWorkAtOrgPathSuffix, YearParser, false);
+                    dataPath+snb::personWorkAtOrgPathSuffix, YearParser, true);
+
+            for(auto &t:pool) t.join();
+        }
+        {
+            std::vector<std::thread> pool;
+
+            pool.emplace_back(importMember, dataPath+snb::forumHasMemberPathSuffix);
+            pool.emplace_back(importKnows, dataPath+snb::personKnowsPersonPathSuffix);
 
             for(auto &t:pool) t.join();
         }

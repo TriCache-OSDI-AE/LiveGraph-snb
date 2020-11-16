@@ -799,61 +799,34 @@ public:
             const auto &[_person, anon_33, _friend, membership, _forum] = tuple;
             return *(int64_t*)std::get<2>(membership).data() > request.minDate;
         });
-        auto distinct = Distinct(filter_1_2, [](const auto &tuple) INLINE {
+        auto projection_1_1 = Projection(filter_1_2, [](const auto &tuple) INLINE {
             const auto &[_person, anon_33, _friend, membership, _forum] = tuple;
-            return std::make_tuple(_friend, _forum);
+            return std::make_tuple(_person, anon_33, _friend, membership, _forum, *((uint64_t*)(std::get<2>(membership).data()+sizeof(uint64_t))));
         });
 
-        auto argument_2 = Argument(distinct, [](const auto &tuple) INLINE
-        {
-            const auto &[_friend, _forum] = tuple;
-            return std::make_tuple(_friend, _forum);
+        auto distinct = Distinct(projection_1_1, [](const auto &tuple) INLINE {
+            const auto &[_person, anon_33, _friend, membership, _forum, postCount] = tuple;
+            return std::make_tuple(_friend, _forum, postCount);
         });
-        auto expand_2_1 = ExpandAll(argument_2, [](const auto &tuple) INLINE {
-            const auto &[_friend, _forum] = tuple;
-            return _forum;
-        }, txn, (label_t)snb::EdgeSchema::Forum2Post);
-        auto filter_2_1 = Filter(expand_2_1, [&txn](const auto &tuple) INLINE {
-            const auto &[_friend, _forum, anon_249, post] = tuple;
-            if(!enableSchemaCheck) return true;
-            auto message = (snb::MessageSchema::Message*)txn.get_vertex(post).data();
-            return message->vtype == snb::VertexSchema::Message && message->type == snb::MessageSchema::Message::Type::Post;
-        });
-        auto expand_2_2 = ExpandInto(filter_2_1, [](const auto &tuple) INLINE {
-            const auto &[_friend, _forum, anon_249, post] = tuple;
-            return std::make_tuple(post, _friend);
-        }, txn, (label_t)snb::EdgeSchema::Message2Person_creator);
-        auto optional_2 = Optional(expand_2_2);
 
-        auto apply_1 = Apply(distinct, optional_2, [](const auto &left, const auto &right) INLINE {
-            const auto &[_friend, _forum] = left;
-            const auto &[_friend_r, _forum_r, anon_249, post, anon_221] = right;
-            return std::make_tuple(post, _friend, anon_221, _forum, anon_249);
-        });
-        auto eager_aggragation_1 = EagerAggragation(apply_1, [](const auto &tuple) INLINE {
-            const auto &[post, _friend, anon_221, _forum, anon_249] = tuple;
+        auto eager_aggragation_1 = EagerAggragation(distinct, [](const auto &tuple) INLINE {
+            const auto &[_friend, _forum, postCount] = tuple;
             return std::make_tuple(_forum);
         }, [](const auto &tuple) INLINE {
-            const auto &[post, _friend, anon_221, _forum, anon_249] = tuple;
-            if(post == 0 && anon_221 == path_type())
-                return 0lu;
-            else 
-                return 1lu;
+            const auto &[_friend, _forum, postCount] = tuple;
+            return postCount;
         }, [](auto &ret, const auto &tuple) INLINE {
-            const auto &[post, _friend, anon_221, _forum, anon_249] = tuple;
-            if(post == 0 && anon_221 == path_type())
-                ret += 0lu;
-            else 
-                ret += 1lu;
+            const auto &[_friend, _forum, postCount] = tuple;
+            ret += postCount;
         }, [](const auto &ret) INLINE {
             return std::make_tuple(ret);
         });
-        auto projection_1_1 = Projection(eager_aggragation_1, [&txn](const auto &tuple) INLINE {
+        auto projection_1_2 = Projection(eager_aggragation_1, [&txn](const auto &tuple) INLINE {
             const auto &[_forum, postCount] = tuple;
             auto forum = (snb::ForumSchema::Forum*)txn.get_vertex(_forum).data();
             return std::make_tuple(_forum, postCount, forum->id);
         });
-        auto top = Top(projection_1_1, [](const auto &tuple) INLINE {
+        auto top = Top(projection_1_2, [](const auto &tuple) INLINE {
             const auto &[_forum, postCount, forumId] = tuple;
             return std::make_tuple(postCount, forumId);
         }, [](const auto &x, const auto &y) INLINE {
@@ -1686,65 +1659,13 @@ public:
             return tuple;
         }, txn, (label_t)snb::EdgeSchema::Person2Person);
 
-        auto empty = Empty<std::tuple<uint64_t, uint64_t>>();
-        auto argument = Argument(empty, [](const auto &tuple) INLINE
-        {
-            const auto &[src, dst] = tuple;
-            return std::make_tuple(src, dst);
-        });
-        auto expand_1 = ExpandAll(argument, [](const auto &tuple) INLINE {
-            const auto &[src, dst] = tuple;
-            return src;
-        }, txn, (label_t)snb::EdgeSchema::Person2Comment_creator);
-        auto filter_1 = Filter(expand_1, [&txn](const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment] = tuple;
-            if(!enableSchemaCheck) return true;
-            auto message = (snb::MessageSchema::Message*)txn.get_vertex(comment).data();
-            return message->vtype == snb::VertexSchema::Message && message->type == snb::MessageSchema::Message::Type::Comment;
-        });
-        auto expand_2 = ExpandAll(filter_1, [](const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment] = tuple;
-            return comment;
-        }, txn, (label_t)snb::EdgeSchema::Message2Message_up);
-        auto filter_2 = Filter(expand_2, [&txn](const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment, commentReplyof, _message] = tuple;
-            if(!enableSchemaCheck) return true;
-            auto type = (snb::VertexSchema*)txn.get_vertex(_message).data();
-            return *type == snb::VertexSchema::Message;
-        });
-        auto expand_3 = ExpandInto(filter_2, [](const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment, commentReplyof, _message] = tuple;
-            return std::make_tuple(_message, dst);
-        }, txn, (label_t)snb::EdgeSchema::Message2Person_creator);
-        auto eager_aggragation = EagerAggragation(expand_3, [](const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment, commentReplyof, _message, _messageHasCreator] = tuple;
-            return std::make_tuple(src, dst);
-        }, [&txn](const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment, commentReplyof, _message, _messageHasCreator] = tuple;
-            auto message = (snb::MessageSchema::Message*)txn.get_vertex(_message).data();
-            return message->type == snb::MessageSchema::Message::Type::Comment ? 0.5 : 1.0;
-        }, [&txn](auto &ret, const auto &tuple) INLINE {
-            const auto &[src, dst, srcCreateComment, comment, commentReplyof, _message, _messageHasCreator] = tuple;
-            auto message = (snb::MessageSchema::Message*)txn.get_vertex(_message).data();
-            ret += message->type == snb::MessageSchema::Message::Type::Comment ? 0.5 : 1.0;
-        }, [](const auto &ret) INLINE {
-            return std::make_tuple(ret);
-        });
-        auto cur_value = 0.0;
-        auto sub_plan = eager_aggragation.gen_plan([&cur_value](const auto &tuple) INLINE {
-            cur_value += std::get<2>(tuple);
-        });
-
-        auto projection = Projection(shortest_path_all, [&sub_plan, &cur_value, &txn](const auto &tuple) INLINE {
+        auto projection = Projection(shortest_path_all, [&txn](const auto &tuple) INLINE {
             const auto &[person1, person2, p, path] = tuple;
             double sum = 0;
             for(const auto &p : path)
             {
                 const auto &[src, dst, value] = p;
-                sub_plan(std::make_tuple(src, dst));
-                sum += cur_value; cur_value = 0;
-                sub_plan(std::make_tuple(dst, src));
-                sum += cur_value; cur_value = 0;
+                sum += *((double*)(value.data()+sizeof(uint64_t)));
             }
             std::vector<int64_t> personIds;
             for(const auto &_person : p)
