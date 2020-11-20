@@ -198,7 +198,7 @@ public:
         auto left_plan = left.gen_plan(left_consume);
         auto right_plan = right.gen_plan(right_consume);
         return [&, left_plan, right_plan](const auto &... tuple) INLINE { 
-            right_plan();
+            right_plan(tuple...);
             left_plan(tuple...); 
         };
     }
@@ -269,6 +269,84 @@ public:
     }
 };
 
+template <typename InputType, typename OrderedKeyFuncType, typename KeyFuncType, typename CompareFuncType>
+class PartialTop
+{
+    InputType &input;
+    OrderedKeyFuncType ordered_key_func;
+    KeyFuncType key_func;
+    CompareFuncType compare_func;
+    const uint64_t max_size;
+    bool first;
+    bool full;
+    using ordered_key_type = std::invoke_result_t<OrderedKeyFuncType, typename InputType::type>;
+    using key_type = std::invoke_result_t<KeyFuncType, typename InputType::type>;
+    ordered_key_type current;
+    std::multimap<key_type, typename InputType::type, CompareFuncType> store;
+
+public:
+    using type = typename InputType::type;
+
+    PartialTop(InputType &_input, const OrderedKeyFuncType &_ordered_key_func, const KeyFuncType &_key_func, const CompareFuncType &_compare_func, const uint64_t &_max_size) 
+        : input(_input), ordered_key_func(_ordered_key_func), key_func(_key_func), compare_func(_compare_func), current(), max_size(_max_size), first(true), full(false), store(compare_func)
+    {
+    }
+
+    template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto consume = [&, parent_consume](const auto &tuple) INLINE {
+            if(full) return;
+            auto key = ordered_key_func(tuple);
+            if(first)
+            {
+                first = false;
+                if(store.size() < max_size)
+                {
+                    current = key;
+                    store.emplace(key_func(tuple), tuple);
+                }
+                else
+                {
+                    full = true;
+                }
+            }
+            else if(current != key)
+            {
+                if(store.size() < max_size)
+                {
+                    current = key;
+                    store.emplace(key_func(tuple), tuple);
+                }
+                else
+                {
+                    full = true;
+                }
+            }
+            else
+            {
+                store.emplace(key_func(tuple), tuple);
+                if(store.size() > max_size)
+                    store.erase(std::prev(store.end()));
+            }
+        };
+
+        auto plan = input.gen_plan(consume);
+        return [&, plan, parent_consume](const auto &... tuple) INLINE { 
+            plan(tuple...); 
+            if(!first)
+            {
+                for(const auto &pair : store)
+                {
+                    parent_consume(pair.second);
+                }
+                store.clear();
+                first = true;
+                full = false;
+            }
+        };
+    }
+};
+
 template <typename InputType, typename FilterFuncType>
 class Filter
 {
@@ -315,8 +393,11 @@ public:
     template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
     {
         auto consume = [&, parent_consume](const auto &tuple) INLINE {
-            if(++count <= limit)
+            if(count < limit)
+            {
                 parent_consume(tuple);
+                ++count;
+            }
         };
 
         auto plan = input.gen_plan(consume);
@@ -640,7 +721,7 @@ public:
 
         return [&, left_plan, right_plan](const auto &... tuple) INLINE { 
             left_plan(tuple...); 
-            right_plan(); 
+            right_plan(tuple...); 
             store.clear();
         };
     }
@@ -669,6 +750,35 @@ public:
         auto plan = input.gen_plan(consume);
         return [&, plan](const auto &... tuple) INLINE { 
             plan(tuple...); 
+        };
+    }
+};
+
+template <typename LeftInputType, typename RightInputType> 
+class Union
+{
+    LeftInputType &left;
+    RightInputType &right;
+
+public:
+    static_assert(std::is_same_v<typename LeftInputType::type, typename RightInputType::type>);
+    using type = typename LeftInputType::type;
+
+    Union(LeftInputType &_left, RightInputType &_right) 
+        : left(_left), right(_right)
+    {
+    }
+
+    template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto consume = [&, parent_consume](const auto &tuple) INLINE { 
+            parent_consume(tuple); 
+        };
+        auto left_plan = left.gen_plan(consume);
+        auto right_plan = right.gen_plan(consume);
+        return [&, left_plan, right_plan](const auto &... tuple) INLINE { 
+            left_plan(tuple...); 
+            right_plan(tuple...); 
         };
     }
 };
@@ -1448,3 +1558,233 @@ public:
     }
 };
 
+template <typename InputType, typename SelectFunc, typename FilterFuncType>
+class ExpandAllFilterLooseLimit
+{
+    InputType &input;
+    SelectFunc select_func;
+    FilterFuncType filter_func;
+
+    Transaction & txn;
+    const std::vector<label_t> etypes;
+
+    const uint64_t max_size;
+    uint64_t count;
+
+    static_assert(std::is_same_v<std::invoke_result_t<SelectFunc, typename InputType::type>, uint64_t>);
+
+
+public:
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<path_type, uint64_t>>;
+
+    ExpandAllFilterLooseLimit(InputType &_input, const SelectFunc &_select_func, const FilterFuncType &_filter_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_max_size)
+        : input(_input), select_func(_select_func), filter_func(_filter_func), txn(_txn), etypes(_etypes), max_size(_max_size), count(0)
+    {
+    }
+
+    ExpandAllFilterLooseLimit(InputType &_input, const SelectFunc &_select_func, const FilterFuncType &_filter_func, Transaction &_txn, const label_t &_etype, const uint64_t &_max_size)
+        : input(_input), select_func(_select_func), filter_func(_filter_func), txn(_txn), etypes({_etype}), max_size(_max_size), count(0)
+    {
+    }
+
+    template <typename ParentConsumeType>
+    INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto consume = [&, parent_consume](const auto &tuple) INLINE {
+            auto src = select_func(tuple);
+            for(const auto &etype:etypes)
+            {
+                auto nbrs = txn.get_edges(src, etype);
+                auto cur = nbrs.edge_data();
+                while(nbrs.valid() && (count < max_size || cur == nbrs.edge_data()))
+                {
+                    if(filter_func(nbrs.edge_data()))
+                    {
+                        parent_consume(std::tuple_cat(tuple, std::make_tuple(std::make_tuple(src, nbrs.dst_id(), nbrs.edge_data()), nbrs.dst_id())));
+                        cur = nbrs.edge_data();
+                        count++;
+                    }
+                    nbrs.next();
+                }
+                count = 0;
+            }
+        };
+        auto plan = input.gen_plan(consume);
+        return [&, plan](const auto &... tuple) INLINE { 
+            plan(tuple...); 
+        };
+    }
+};
+
+template <typename InputType, typename SelectFunc, typename RangeLeftFuncType, typename RangeRightFuncType>
+class ExpandAllRange
+{
+    InputType &input;
+    SelectFunc select_func;
+    RangeLeftFuncType range_left_func;
+    RangeRightFuncType range_right_func;
+
+    Transaction & txn;
+    const std::vector<label_t> etypes;
+
+    static_assert(std::is_same_v<std::invoke_result_t<SelectFunc, typename InputType::type>, uint64_t>);
+
+
+public:
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<path_type, uint64_t>>;
+
+    ExpandAllRange(InputType &_input, const SelectFunc &_select_func, const RangeLeftFuncType &_range_left_func, const RangeRightFuncType &_range_right_func, Transaction &_txn, const std::vector<label_t> &_etypes)
+        : input(_input), select_func(_select_func), range_left_func(_range_left_func), range_right_func(_range_right_func), txn(_txn), etypes(_etypes)
+    {
+    }
+    ExpandAllRange(InputType &_input, const SelectFunc &_select_func, const RangeLeftFuncType &_range_left_func, const RangeRightFuncType &_range_right_func, Transaction &_txn, const label_t &_etype)
+        : input(_input), select_func(_select_func), range_left_func(_range_left_func), range_right_func(_range_right_func), txn(_txn), etypes({_etype})
+    {
+    }
+
+    template <typename ParentConsumeType>
+    INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto consume = [&, parent_consume](const auto &tuple) INLINE {
+            auto src = select_func(tuple);
+            for(const auto &etype:etypes)
+            {
+                auto nbrs = txn.get_edges(src, etype);
+                while(nbrs.valid() && range_left_func(nbrs.edge_data()))
+                {
+                    if(range_right_func(nbrs.edge_data()))
+                    {
+                        parent_consume(std::tuple_cat(tuple, std::make_tuple(std::make_tuple(src, nbrs.dst_id(), nbrs.edge_data()), nbrs.dst_id())));
+                    }
+                    nbrs.next();
+                }
+            }
+        };
+        auto plan = input.gen_plan(consume);
+        return [&, plan](const auto &... tuple) INLINE { 
+            plan(tuple...); 
+        };
+    }
+};
+
+template <typename InputType, typename KeyFuncType, typename CompareFuncType>
+class LooseTop
+{
+    InputType &input;
+    KeyFuncType key_func;
+    CompareFuncType compare_func;
+    const uint64_t max_size;
+    using key_type = std::invoke_result_t<KeyFuncType, typename InputType::type>;
+    std::multimap<key_type, typename InputType::type, CompareFuncType> store;
+
+public:
+    using type = typename InputType::type;
+
+    LooseTop(InputType &_input, const KeyFuncType &_key_func, const CompareFuncType &_compare_func, const uint64_t &_max_size) 
+        : input(_input), key_func(_key_func), compare_func(_compare_func), max_size(_max_size), store(compare_func)
+    {
+    }
+
+    template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto consume = [&](const auto &tuple) INLINE {
+            store.emplace(key_func(tuple), tuple);
+            auto begin = store.lower_bound(std::prev(store.end())->first);
+            uint64_t sum = 0;
+            for(auto it=begin;it!=store.end();++it) ++sum;
+            if(store.size() >= max_size+sum)
+            {
+                for(uint64_t i=0;i<sum;i++)
+                {
+                    store.erase(std::prev(store.end()));
+                }
+            }
+        };
+
+        auto plan = input.gen_plan(consume);
+        return [&, plan, parent_consume](const auto &... tuple) INLINE { 
+            plan(tuple...); 
+            for(const auto &pair : store)
+            {
+                parent_consume(pair.second);
+            }
+            store.clear();
+        };
+    }
+};
+
+template <typename InputType, typename SelectFunc> 
+class SingleSourceShortestPath
+{
+    InputType &input;
+    SelectFunc select_func;
+
+    Transaction & txn;
+    label_t etype;
+    uint64_t max_hops;
+
+    static_assert(std::is_same_v<std::invoke_result_t<SelectFunc, typename InputType::type>, uint64_t>);
+
+
+public:
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<uint64_t>, std::tuple<std::vector<uint64_t>, std::vector<path_type>>>;
+
+    SingleSourceShortestPath(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
+        : input(_input), select_func(_select_func), txn(_txn), etype(_etype), max_hops(_max_hops)
+    {
+    }
+
+    template <typename ParentConsumeType>
+    INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto consume = [&, parent_consume](const auto &tuple) INLINE {
+            uint64_t vid_from = select_func(tuple);
+            std::unordered_map<uint64_t, std::pair<uint64_t, std::string_view>> parent;
+            std::vector<uint64_t> forward_q;
+            parent[vid_from] = {vid_from, ""};
+            forward_q.push_back(vid_from);
+            uint64_t hops = 0;
+            auto get_path = [&](uint64_t src) INLINE -> std::tuple<std::vector<uint64_t>, std::vector<path_type>>
+            {
+                std::vector<uint64_t> path_v;
+                std::vector<path_type> path_e;
+                for(auto it=parent.find(src);it!=parent.end();it=parent.find(it->second.first))
+                {
+                    path_v.emplace_back(it->first);
+                    if(it->first == vid_from) break;
+                    path_e.emplace_back(it->second.first, it->first, it->second.second);
+                }
+                std::reverse(path_v.begin(), path_v.end());
+                std::reverse(path_e.begin(), path_e.end());
+                return {path_v, path_e};
+
+            };
+            while (hops++ < max_hops) 
+            {
+                std::vector<uint64_t> new_front;
+                for (uint64_t vid : forward_q) 
+                {
+                    auto out_edges = txn.get_edges(vid, etype);
+                    while (out_edges.valid()) 
+                    {
+                        uint64_t dst = out_edges.dst_id();
+                        auto it = parent.find(dst);
+                        if (it == parent.end()) 
+                        {
+                            parent.emplace_hint(it, dst, std::make_pair(vid, out_edges.edge_data()));
+                            new_front.push_back(dst);
+                            parent_consume(std::tuple_cat(tuple, std::make_tuple(dst), std::move(get_path(dst))));
+                        }
+                        out_edges.next();
+                    }
+                }
+                if (new_front.empty()) break;
+                forward_q.swap(new_front);
+            }
+        };
+        auto plan = input.gen_plan(consume);
+        return [&, plan](const auto &... tuple) INLINE { 
+            plan(tuple...); 
+        };
+    }
+};

@@ -535,6 +535,41 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
     }
 }
 
+void importMessageCreator(snb::Schema &messageSchema, snb::EdgeSchema p2m, std::string path)
+{
+    auto all_rawEdges = parallel_readlines(path);
+
+    std::vector<std::tuple<uint64_t, uint64_t, uint64_t>> rawEdges(all_rawEdges.size()-1);
+    auto loader = graph->begin_batch_loader();
+
+    #pragma omp parallel for
+    for(size_t i=1;i<all_rawEdges.size();i++)
+    {
+        auto rawEdge_v = split(all_rawEdges[i], csv_split);
+        auto src = messageSchema.findId(std::stoull(rawEdge_v[0]));
+        auto dst = personSchema.findId(std::stoull(rawEdge_v[1]));
+        auto message = (snb::MessageSchema::Message*)loader.get_vertex(src).data();
+        rawEdges[i-1] = {src, dst, message->creationDate};
+    }
+    all_rawEdges.clear();
+
+
+    tbb::parallel_sort(rawEdges.begin(), rawEdges.end(), [&loader](const std::tuple<uint64_t, uint64_t, uint64_t>&a, const std::tuple<uint64_t, uint64_t, uint64_t>&b){
+        return std::get<2>(a) < std::get<2>(b);
+    });
+
+    for(size_t i=0;i<rawEdges.size();i++)
+    {
+        auto x_vid = std::get<0>(rawEdges[i]);
+        auto y_vid = std::get<1>(rawEdges[i]);
+        auto dateTime = std::get<2>(rawEdges[i]);
+        snb::Buffer buf(sizeof(uint64_t)+sizeof(double));
+        *(uint64_t*)buf.data() = dateTime;
+        loader.put_edge(x_vid, (label_t)snb::EdgeSchema::Message2Person_creator, y_vid, std::string_view(buf.data(), buf.size()), true);
+        loader.put_edge(y_vid, (label_t)p2m, x_vid, std::string_view(buf.data(), buf.size()), true);
+    }
+}
+
 void importMember(std::string path)
 {
     auto all_dataEdges = parallel_readlines(path);
@@ -814,15 +849,19 @@ int main(int argc, char** argv)
             pool.emplace_back(importTag,      std::ref(tagSchema),      dataPath);
             pool.emplace_back(importTagClass, std::ref(tagclassSchema), dataPath);
             pool.emplace_back(importForum,    std::ref(forumSchema),    dataPath);
+            for(auto &t:pool) t.join();
+        }
+        {
+            std::vector<std::thread> pool;
 
             pool.emplace_back(importRawEdge,std::ref(personSchema),  std::ref(tagSchema),     snb::EdgeSchema::Person2Tag,            snb::EdgeSchema::Tag2Person,            dataPath+snb::personHasInterestPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(postSchema),    std::ref(tagSchema),     snb::EdgeSchema::Post2Tag,              snb::EdgeSchema::Tag2Post,              dataPath+snb::postHasTagPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(tagSchema),     snb::EdgeSchema::Comment2Tag,           snb::EdgeSchema::Tag2Comment,           dataPath+snb::commentHasTagPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(forumSchema),   std::ref(tagSchema),     snb::EdgeSchema::Forum2Tag,             snb::EdgeSchema::Tag2Forum,             dataPath+snb::forumHasTagPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(forumSchema),   std::ref(postSchema),    snb::EdgeSchema::Forum2Post,            snb::EdgeSchema::Post2Forum,            dataPath+snb::forumContainPostPathSuffix);
-            pool.emplace_back(importRawEdge,std::ref(postSchema),    std::ref(personSchema),  snb::EdgeSchema::Message2Person_creator,snb::EdgeSchema::Person2Post_creator,   dataPath+snb::postHasCreatorPathSuffix);
+            //pool.emplace_back(importRawEdge,std::ref(postSchema),    std::ref(personSchema),  snb::EdgeSchema::Message2Person_creator,snb::EdgeSchema::Person2Post_creator,   dataPath+snb::postHasCreatorPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(postSchema),    std::ref(placeSchema),   snb::EdgeSchema::Message2Place,         snb::EdgeSchema::Place2Post,            dataPath+snb::postIsLocatedInPathSuffix);
-            pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(personSchema),  snb::EdgeSchema::Message2Person_creator,snb::EdgeSchema::Person2Comment_creator,dataPath+snb::commentHasCreatorPathSuffix);
+            //pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(personSchema),  snb::EdgeSchema::Message2Person_creator,snb::EdgeSchema::Person2Comment_creator,dataPath+snb::commentHasCreatorPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(forumSchema),   std::ref(personSchema),  snb::EdgeSchema::Forum2Person_moderator,snb::EdgeSchema::Person2Forum_moderator,dataPath+snb::forumHasModeratorPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(tagSchema),     std::ref(tagclassSchema),snb::EdgeSchema::Tag2TagClass,          snb::EdgeSchema::TagClass2Tag,          dataPath+snb::tagHasTypePathSuffix);
             pool.emplace_back(importRawEdge,std::ref(placeSchema),   std::ref(placeSchema),   snb::EdgeSchema::Place2Place_up,        snb::EdgeSchema::Place2Place_down,      dataPath+snb::placeIsPartOfPathSuffix);
@@ -832,6 +871,9 @@ int main(int argc, char** argv)
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(postSchema),    snb::EdgeSchema::Message2Message_up,    snb::EdgeSchema::Message2Message_down,  dataPath+snb::commentReplyOfPostPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(commentSchema), snb::EdgeSchema::Message2Message_up,    snb::EdgeSchema::Message2Message_down,  dataPath+snb::commentReplyOfCommentPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(placeSchema),   snb::EdgeSchema::Message2Place,         snb::EdgeSchema::Place2Comment,         dataPath+snb::commentIsLocatedInPathSuffix);
+
+            pool.emplace_back(importMessageCreator, std::ref(postSchema), snb::EdgeSchema::Person2Post_creator, dataPath+snb::postHasCreatorPathSuffix);
+            pool.emplace_back(importMessageCreator, std::ref(commentSchema), snb::EdgeSchema::Person2Comment_creator, dataPath+snb::commentHasCreatorPathSuffix);
 
             auto DateTimeParser = [](std::string str)
             {
