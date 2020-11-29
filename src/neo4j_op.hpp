@@ -200,6 +200,7 @@ public:
         return [&, left_plan, right_plan](const auto &... tuple) INLINE { 
             right_plan(tuple...);
             left_plan(tuple...); 
+            right_data.clear();
         };
     }
 };

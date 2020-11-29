@@ -362,8 +362,7 @@ public:
         });
 
 
-        auto plan = projection_result.gen_plan([&_return](const auto &tuple)
-        {
+        auto plan = projection_result.gen_plan([&_return](const auto &tuple) INLINE {
             const auto &[id, lastName, distance, birthday, creationDate, gender, browser, ip, emails, speaks, place, unis, companies] = tuple;
             _return.emplace_back();
             _return.back().friendId = id;
@@ -539,8 +538,7 @@ public:
                     creationDate);
         });
 
-        auto plan = projection_result.gen_plan([&_return](const auto &tuple)
-        {
+        auto plan = projection_result.gen_plan([&_return](const auto &tuple) INLINE {
             const auto &[id, firstName, lastName, messageId, messageContent, messageCreationDate] = tuple;
             _return.emplace_back();
             _return.back().personId = id;
