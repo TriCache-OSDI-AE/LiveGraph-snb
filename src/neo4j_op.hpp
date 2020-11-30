@@ -1230,7 +1230,7 @@ class ShortestPath
 
 
 public:
-    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<uint64_t>, std::vector<path_type>>>;
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<int64_t>>;
 
     ShortestPath(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
         : input(_input), select_func(_select_func), txn(_txn), etype(_etype), max_hops(_max_hops)
@@ -1240,9 +1240,9 @@ public:
     template <typename ParentConsumeType>
     INLINE auto gen_plan(const ParentConsumeType &parent_consume)
     {
-        auto pairwiseShortestPath = [&](uint64_t vid_from, uint64_t vid_to) -> std::tuple<std::vector<uint64_t>, std::vector<path_type>>
+        auto pairwiseShortestPath = [&](uint64_t vid_from, uint64_t vid_to) -> int64_t 
         {
-            if(vid_from == vid_to) return {{vid_from}, {}};
+            if(vid_from == vid_to) return 0;
             std::unordered_map<uint64_t, std::pair<uint64_t, std::string_view>> parent, child;
             std::vector<uint64_t> forward_q, backward_q;
             parent[vid_from] = {vid_from, ""};
@@ -1288,7 +1288,7 @@ public:
                             if (child.find(dst) != child.end()) 
                             {
                                 // found the path
-                                return get_path(vid, dst, out_edges);
+                                return hops;
                             }
                             auto it = parent.find(dst);
                             if (it == parent.end()) 
@@ -1313,7 +1313,7 @@ public:
                             if (parent.find(src) != parent.end()) 
                             {
                                 // found the path
-                                return get_path(src, vid, in_edges);
+                                return hops;
                             }
                             auto it = child.find(src);
                             if (it == child.end()) 
@@ -1328,14 +1328,11 @@ public:
                     backward_q.swap(new_front);
                 }
             }
-            return {{}, {}};
+            return -1;
         };
         auto consume = [&, parent_consume, pairwiseShortestPath](const auto &tuple) INLINE {
             auto path = std::apply(pairwiseShortestPath, select_func(tuple));
-            if(!std::get<0>(path).empty())
-            {
-                parent_consume(std::tuple_cat(tuple, std::move(path)));
-            }
+            parent_consume(std::tuple_cat(tuple, std::make_tuple(path)));
         };
         auto plan = input.gen_plan(consume);
         return [&, plan](const auto &... tuple) INLINE { 
@@ -1728,7 +1725,7 @@ class SingleSourceShortestPath
 
 
 public:
-    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<uint64_t>, std::tuple<std::vector<uint64_t>, std::vector<path_type>>>;
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<uint64_t>, std::tuple<uint64_t>>;
 
     SingleSourceShortestPath(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, label_t _etype, uint64_t _max_hops=std::numeric_limits<uint64_t>::max())
         : input(_input), select_func(_select_func), txn(_txn), etype(_etype), max_hops(_max_hops)
@@ -1774,7 +1771,7 @@ public:
                         {
                             parent.emplace_hint(it, dst, std::make_pair(vid, out_edges.edge_data()));
                             new_front.push_back(dst);
-                            parent_consume(std::tuple_cat(tuple, std::make_tuple(dst), std::move(get_path(dst))));
+                            parent_consume(std::tuple_cat(tuple, std::make_tuple(dst), std::make_tuple(hops)));
                         }
                         out_edges.next();
                     }

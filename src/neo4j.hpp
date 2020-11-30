@@ -156,12 +156,12 @@ public:
             const auto &[_friend] = tuple;
             return _friend;
         }, [](const auto &tuple) INLINE {
-            const auto &[anon_22, _friend, p, path] = tuple;
+            const auto &[anon_22, _friend, length] = tuple;
             return _friend;
         });
         auto projection_2_1 = Projection(hash_join, [](const auto &tuple) INLINE {
-            const auto &[_friend_l, anon_22, _friend, p, path] = tuple;
-            return std::make_tuple(path, _friend, p, anon_22, p.size()-1);
+            const auto &[_friend_l, anon_22, _friend, length] = tuple;
+            return std::make_tuple(0, _friend, 0, anon_22, length);
         });
 
         auto projection_2_2 = Projection(projection_2_1, [&txn](const auto &tuple) INLINE {
@@ -965,9 +965,17 @@ public:
             const auto &[_person, anon_33, _friend] = tuple;
             return _person != _friend;
         });
-        auto expand_1_1 = ExpandAll(filter_1_1, [](const auto &tuple) INLINE {
+        //auto expand_1_1 = ExpandAll(filter_1_1, [](const auto &tuple) INLINE {
+        //    const auto &[_person, anon_33, _friend] = tuple;
+        //    return _friend;
+        //}, txn, (label_t)snb::EdgeSchema::Person2Forum_member);
+        auto expand_1_1 = ExpandAllRange(filter_1_1, [](const auto &tuple) INLINE {
             const auto &[_person, anon_33, _friend] = tuple;
             return _friend;
+        }, [&request](const auto &edge_data) INLINE {
+            return (int64_t)*(uint64_t*)edge_data.data() > request.minDate;
+        }, [](const auto &edge_data) INLINE {
+            return true;
         }, txn, (label_t)snb::EdgeSchema::Person2Forum_member);
         auto anon_filter_1_2 = Filter(expand_1_1, [&txn](const auto &tuple) INLINE {
             const auto &[_person, anon_33, _friend, membership, _forum] = tuple;
@@ -977,26 +985,27 @@ public:
         });
         auto filter_1_2 = Filter(anon_filter_1_2, [&request](const auto &tuple) INLINE {
             const auto &[_person, anon_33, _friend, membership, _forum] = tuple;
-            return *(int64_t*)std::get<2>(membership).data() > request.minDate;
+            return true;
+            //return *(int64_t*)std::get<2>(membership).data() > request.minDate;
         });
         auto projection_1_1 = Projection(filter_1_2, [](const auto &tuple) INLINE {
             const auto &[_person, anon_33, _friend, membership, _forum] = tuple;
             return std::make_tuple(_person, anon_33, _friend, membership, _forum, *((uint64_t*)(std::get<2>(membership).data()+sizeof(uint64_t))));
         });
 
-        auto distinct = Distinct(projection_1_1, [](const auto &tuple) INLINE {
-            const auto &[_person, anon_33, _friend, membership, _forum, postCount] = tuple;
-            return std::make_tuple(_friend, _forum, postCount);
-        });
+        //auto distinct = Distinct(projection_1_1, [](const auto &tuple) INLINE {
+        //    const auto &[_person, anon_33, _friend, membership, _forum, postCount] = tuple;
+        //    return std::make_tuple(_friend, _forum, postCount);
+        //});
 
-        auto eager_aggragation_1 = EagerAggragation(distinct, [](const auto &tuple) INLINE {
-            const auto &[_friend, _forum, postCount] = tuple;
+        auto eager_aggragation_1 = EagerAggragation(projection_1_1, [](const auto &tuple) INLINE {
+            const auto &[_person, anon_33, _friend, membership, _forum, postCount] = tuple;
             return std::make_tuple(_forum);
         }, [](const auto &tuple) INLINE {
-            const auto &[_friend, _forum, postCount] = tuple;
+            const auto &[_person, anon_33, _friend, membership, _forum, postCount] = tuple;
             return postCount;
         }, [](auto &ret, const auto &tuple) INLINE {
-            const auto &[_friend, _forum, postCount] = tuple;
+            const auto &[_person, anon_33, _friend, membership, _forum, postCount] = tuple;
             ret += postCount;
         }, [](const auto &ret) INLINE {
             return std::make_tuple(ret);
@@ -1089,10 +1098,9 @@ public:
             const auto &[_person, anon_41, _friend, knownTag, anon_115, friendPost, anon_81, __friend, anon_214, commonTag] = tuple;
             return knownTag != commonTag;
         });
-        auto eager_aggragation_1 = EagerAggragation(filter_1_2, [&txn](const auto &tuple) INLINE {
+        auto eager_aggragation_1 = EagerAggragation(filter_1_2, [](const auto &tuple) INLINE {
             const auto &[_person, anon_41, _friend, knownTag, anon_115, friendPost, anon_81, __friend, anon_214, commonTag] = tuple;
-            auto tag = (snb::TagSchema::Tag*)txn.get_vertex(commonTag).data();
-            return std::make_tuple(std::string_view(tag->name(), tag->nameLen()));
+            return std::make_tuple(commonTag);
         }, [](const auto &tuple) INLINE {
             const auto &[_person, anon_41, _friend, knownTag, anon_115, friendPost, anon_81, __friend, anon_214, commonTag] = tuple;
             return 1lu;
@@ -1102,7 +1110,12 @@ public:
         }, [](const auto &ret) INLINE {
             return std::make_tuple(ret);
         });
-        auto top = Top(eager_aggragation_1, [](const auto &tuple) INLINE {
+        auto projection_1 = Projection(eager_aggragation_1, [&txn](const auto &tuple) INLINE {
+            const auto &[commonTag, postCount] = tuple;
+            auto tag = (snb::TagSchema::Tag*)txn.get_vertex(commonTag).data();
+            return std::make_tuple(std::string_view(tag->name(), tag->nameLen()), postCount);
+        });
+        auto top = Top(projection_1, [](const auto &tuple) INLINE {
             const auto &[tagName, postCount] = tuple;
             return std::make_tuple(postCount, tagName);
         }, [](const auto &x, const auto &y) INLINE {
@@ -1912,24 +1925,12 @@ public:
         NodeIndexSeek node_index_seek_2_1(personSchema.db, personSchema.vindex, to_string<uint64_t>(request.person2Id));
         auto cartesian_product = CartesianProduct(node_index_seek_1_1, node_index_seek_2_1);
 
-        auto argument = Argument(cartesian_product, [](const auto &tuple) INLINE
-        {
-            return tuple;
-        });
-        auto shortest_path = ShortestPath(argument, [](const auto &tuple) INLINE {
+        auto shortest_path = ShortestPath(cartesian_product, [](const auto &tuple) INLINE {
             return tuple;
         }, txn, (label_t)snb::EdgeSchema::Person2Person);
-        auto optional = Optional(shortest_path);
-
-        auto apply = Apply(cartesian_product, optional, [](const auto &left, const auto &right) INLINE {
-            const auto &[_person1, _person2] = left;
-            const auto &[_person1_r, _person2_r, p, path] = right;
-            return std::make_tuple(_person1, _person2, p, path);
-        });
-
-        auto projection = Projection(apply, [](const auto &tuple) INLINE {
-            const auto &[_person1, _person2, p, path] = tuple;
-            return std::make_tuple(p.empty() ? -1l : (int64_t)path.size());      
+        auto projection = Projection(shortest_path, [](const auto &tuple) INLINE {
+            const auto &[_person1, _person2, length] = tuple;
+            return std::make_tuple(length);
         });
 
         auto plan = projection.gen_plan([&_return](const auto &tuple) INLINE {
