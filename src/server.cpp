@@ -96,6 +96,12 @@ std::vector<std::string> static parallel_readlines(const std::string &path)
     //return ret;
 }
 
+template<typename T, typename U> 
+constexpr size_t offsetOf(U T::*member)
+{
+    return (char*)&((T*)nullptr->*member) - (char*)nullptr;
+}
+
 void prepareVIndex(snb::Schema &schema, std::string path)
 {
     auto loader = graph->begin_batch_loader();
@@ -476,8 +482,6 @@ void importRawEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x
     #pragma omp parallel for
     for(size_t i=1;i<all_rawEdges.size();i++)
     {
-        std::vector<std::string> rawEdge_v = split(all_rawEdges[i], csv_split);
-
         uint64_t x_vid = x_vids[i];
         uint64_t y_vid = y_vids[i];
 
@@ -535,6 +539,52 @@ void importDataEdge(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema 
     }
 }
 
+void importMessageReply(snb::Schema &xSchema, snb::Schema &ySchema, snb::EdgeSchema x2y, snb::EdgeSchema y2x, std::string path)
+{
+    auto all_dataEdges = parallel_readlines(path);
+
+    std::vector<std::vector<std::string>> dataEdge_vs(all_dataEdges.size()-1);
+    #pragma omp parallel for
+    for(size_t i=1;i<all_dataEdges.size();i++)
+    {
+        dataEdge_vs[i-1] = split(all_dataEdges[i], csv_split);
+    }
+    all_dataEdges.clear();
+
+    auto loader = graph->begin_batch_loader();
+
+    tbb::parallel_sort(dataEdge_vs.begin(), dataEdge_vs.end(), [&](const std::vector<std::string>&a, const std::vector<std::string>&b){
+        auto a_vid = xSchema.findId(std::stoull(a[0]));
+        auto a_message = (snb::MessageSchema::Message*)loader.get_vertex(a_vid).data();
+        auto b_vid = xSchema.findId(std::stoull(b[0]));
+        auto b_message = (snb::MessageSchema::Message*)loader.get_vertex(b_vid).data();
+        return a_message->creationDate < b_message->creationDate;
+    });
+
+    std::vector<uint64_t> x_vids(dataEdge_vs.size()), y_vids(dataEdge_vs.size()), dates(dataEdge_vs.size());
+    #pragma omp parallel for
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        auto &dataEdge_v = dataEdge_vs[i];
+        x_vids[i] = xSchema.findId(std::stoull(dataEdge_v[0]));
+        y_vids[i] = ySchema.findId(std::stoull(dataEdge_v[1]));
+        auto message = (snb::MessageSchema::Message*)loader.get_vertex(x_vids[i]).data();
+        dates[i] = message->creationDate;
+    }
+
+    for(size_t i=0;i<dataEdge_vs.size();i++)
+    {
+        uint64_t x_vid = x_vids[i];
+        uint64_t y_vid = y_vids[i];
+        snb::Buffer buf(sizeof(uint64_t));
+        *(uint64_t*)buf.data() = dates[i];
+
+        loader.put_edge(x_vid, (label_t)x2y, y_vid, std::string_view(buf.data(), buf.size()), true);
+        loader.put_edge(y_vid, (label_t)y2x, x_vid, std::string_view(buf.data(), buf.size()), true);
+
+    }
+}
+
 void importMessageCreator(snb::Schema &messageSchema, snb::EdgeSchema p2m, std::string path)
 {
     auto all_rawEdges = parallel_readlines(path);
@@ -567,6 +617,24 @@ void importMessageCreator(snb::Schema &messageSchema, snb::EdgeSchema p2m, std::
         *(uint64_t*)buf.data() = dateTime;
         loader.put_edge(x_vid, (label_t)snb::EdgeSchema::Message2Person_creator, y_vid, std::string_view(buf.data(), buf.size()), true);
         loader.put_edge(y_vid, (label_t)p2m, x_vid, std::string_view(buf.data(), buf.size()), true);
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            try
+            {
+                auto prev = txn.get_vertex(x_vid);
+                std::string now = {prev.data(), prev.size()};
+                auto message = (snb::MessageSchema::Message*)now.data();
+                message->creator = y_vid;
+                txn.put_vertex(x_vid, now);
+                txn.commit();
+                break;
+            }
+            catch (Transaction::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
     }
 }
 
@@ -718,6 +786,44 @@ void importKnows(std::string path)
     }
 }
 
+void importInlinedEdge(snb::Schema &xSchema, snb::Schema &ySchema, size_t offset, std::string path)
+{
+    auto all_rawEdges = parallel_readlines(path);
+
+    std::vector<uint64_t> x_vids(all_rawEdges.size()), y_vids(all_rawEdges.size());
+    #pragma omp parallel for
+    for(size_t i=1;i<all_rawEdges.size();i++)
+    {
+        std::vector<std::string> rawEdge_v = split(all_rawEdges[i], csv_split);
+        x_vids[i] = xSchema.findId(std::stoull(rawEdge_v[0]));
+        y_vids[i] = ySchema.findId(std::stoull(rawEdge_v[1]));
+    }
+
+    #pragma omp parallel for
+    for(size_t i=1;i<all_rawEdges.size();i++)
+    {
+        uint64_t x_vid = x_vids[i];
+        uint64_t y_vid = y_vids[i];
+
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            try
+            {
+                auto prev = txn.get_vertex(x_vid);
+                std::string now = {prev.data(), prev.size()};
+                *(uint64_t*)(now.data()+offset) = y_vid;
+                txn.put_vertex(x_vid, now);
+                txn.commit();
+                break;
+            }
+            catch (Transaction::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
+    }
+}
 
 class InteractiveCloneFactory : virtual public InteractiveIfFactory {
 public:
@@ -868,12 +974,23 @@ int main(int argc, char** argv)
             pool.emplace_back(importRawEdge,std::ref(personSchema),  std::ref(placeSchema),   snb::EdgeSchema::Person2Place,          snb::EdgeSchema::Place2Person,          dataPath+snb::personIsLocatedInPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(orgSchema),     std::ref(placeSchema),   snb::EdgeSchema::Org2Place,             snb::EdgeSchema::Place2Org,             dataPath+snb::orgIsLocatedInPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(tagclassSchema),std::ref(tagclassSchema),snb::EdgeSchema::TagClass2TagClass_up,  snb::EdgeSchema::TagClass2TagClass_down,dataPath+snb::tagClassIsSubclassOfPathSuffix);
-            pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(postSchema),    snb::EdgeSchema::Message2Message_up,    snb::EdgeSchema::Message2Message_down,  dataPath+snb::commentReplyOfPostPathSuffix);
-            pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(commentSchema), snb::EdgeSchema::Message2Message_up,    snb::EdgeSchema::Message2Message_down,  dataPath+snb::commentReplyOfCommentPathSuffix);
             pool.emplace_back(importRawEdge,std::ref(commentSchema), std::ref(placeSchema),   snb::EdgeSchema::Message2Place,         snb::EdgeSchema::Place2Comment,         dataPath+snb::commentIsLocatedInPathSuffix);
+
+            pool.emplace_back(importInlinedEdge, std::ref(forumSchema), std::ref(personSchema), offsetOf(&snb::ForumSchema::Forum::moderator), dataPath+snb::forumHasModeratorPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(tagSchema), std::ref(tagclassSchema), offsetOf(&snb::TagSchema::Tag::hasType), dataPath+snb::tagHasTypePathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(placeSchema), std::ref(placeSchema), offsetOf(&snb::PlaceSchema::Place::isPartOf), dataPath+snb::placeIsPartOfPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(personSchema), std::ref(placeSchema), offsetOf(&snb::PersonSchema::Person::place), dataPath+snb::personIsLocatedInPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(orgSchema), std::ref(placeSchema), offsetOf(&snb::OrgSchema::Org::place), dataPath+snb::orgIsLocatedInPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(tagclassSchema), std::ref(tagclassSchema), offsetOf(&snb::TagClassSchema::TagClass::isSubclassOf), dataPath+snb::tagClassIsSubclassOfPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(commentSchema), std::ref(postSchema), offsetOf(&snb::MessageSchema::Message::replyOfPost), dataPath+snb::commentReplyOfPostPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(commentSchema), std::ref(commentSchema), offsetOf(&snb::MessageSchema::Message::replyOfComment), dataPath+snb::commentReplyOfCommentPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(postSchema), std::ref(placeSchema), offsetOf(&snb::MessageSchema::Message::place), dataPath+snb::postIsLocatedInPathSuffix);
+            pool.emplace_back(importInlinedEdge, std::ref(commentSchema), std::ref(placeSchema), offsetOf(&snb::MessageSchema::Message::place), dataPath+snb::commentIsLocatedInPathSuffix);
 
             pool.emplace_back(importMessageCreator, std::ref(postSchema), snb::EdgeSchema::Person2Post_creator, dataPath+snb::postHasCreatorPathSuffix);
             pool.emplace_back(importMessageCreator, std::ref(commentSchema), snb::EdgeSchema::Person2Comment_creator, dataPath+snb::commentHasCreatorPathSuffix);
+            pool.emplace_back(importMessageReply, std::ref(commentSchema), std::ref(postSchema), snb::EdgeSchema::Message2Message_up, snb::EdgeSchema::Message2Message_down, dataPath+snb::commentReplyOfPostPathSuffix);
+            pool.emplace_back(importMessageReply, std::ref(commentSchema), std::ref(commentSchema), snb::EdgeSchema::Message2Message_up, snb::EdgeSchema::Message2Message_down, dataPath+snb::commentReplyOfCommentPathSuffix);
 
             auto DateTimeParser = [](std::string str)
             {
@@ -913,6 +1030,8 @@ int main(int argc, char** argv)
 
             for(auto &t:pool) t.join();
         }
+
+        graph->compact();
 
         std::cout << "Finish importing" << std::endl;
     }

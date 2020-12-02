@@ -93,6 +93,7 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
+            uint64_t place;
             uint64_t creationDate;
             uint32_t birthday;
             uint16_t lastName_offset;
@@ -243,6 +244,7 @@ namespace snb
                 Error
             } type;
             uint64_t id;
+            uint64_t isPartOf;
             uint16_t url_offset;
             uint16_t length;
             char data[0];
@@ -312,6 +314,7 @@ namespace snb
                 Error
             } type;
             uint64_t id;
+            uint64_t place;
             uint16_t url_offset;
             uint16_t length;
             char data[0];
@@ -382,6 +385,10 @@ namespace snb
             } type;
             uint64_t id;
             uint64_t creationDate;
+            uint64_t creator;
+            uint64_t place;
+            uint64_t replyOfPost;
+            uint64_t replyOfComment;
             uint16_t locationIP_offset;
             uint16_t browserUsed_offset;
             uint16_t language_offset;
@@ -447,6 +454,9 @@ namespace snb
             message->id = id;
             message->creationDate = creationDate;
 
+            message->replyOfPost = (uint64_t)-1;
+            message->replyOfComment = (uint64_t)-1;
+
             uint16_t offset = 0;
             memcpy(message->data+offset, imageFile.c_str(), imageFile.length());
             offset += imageFile.length(); message->locationIP_offset = offset;
@@ -485,6 +495,7 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
+            uint64_t hasType;
             uint16_t url_offset;
             uint16_t length;
             char data[0];
@@ -547,6 +558,7 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
+            uint64_t isSubclassOf;
             uint16_t url_offset;
             uint16_t length;
             char data[0];
@@ -609,6 +621,7 @@ namespace snb
         {
             VertexSchema vtype;
             uint64_t id;
+            uint64_t moderator;
             uint64_t creationDate;
             uint16_t length;
             char data[0];
