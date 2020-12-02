@@ -191,10 +191,15 @@ public:
             const auto &[friend_id, path, friend_lastName, _friend, p, anon_22, distance, cache] = tuple;
             return std::make_tuple(_friend, distance);
         });
-        auto expand_3_1 = ExpandAll(argument_3, [](const auto &tuple) INLINE {
+        //auto expand_3_1 = ExpandAll(argument_3, [](const auto &tuple) INLINE {
+        //    const auto &[_friend, distance] = tuple;
+        //    return _friend;
+        //}, txn, (label_t)snb::EdgeSchema::Person2Place);
+        auto expand_3_1 = Projection(argument_3, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, distance] = tuple;
-            return _friend;
-        }, txn, (label_t)snb::EdgeSchema::Person2Place);
+            auto person = (snb::PersonSchema::Person*)txn.get_vertex(_friend).data();
+            return std::make_tuple(_friend, distance, 0, person->place);
+        });
         auto filter_3_1 = Filter(expand_3_1, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, distance, anon_233, friendCity] = tuple;
             if(!enableSchemaCheck) return true;
@@ -223,10 +228,15 @@ public:
             auto new_cache = std::make_tuple(org->id, *(int32_t*)std::get<2>(studyAt).data(), std::string_view(org->name(), org->nameLen()));
             return std::tuple_cat(tuple, std::make_tuple(new_cache));
         });
-        auto expand_4_2 = ExpandAll(cache_4_1, [](const auto &tuple) INLINE {
+        //auto expand_4_2 = ExpandAll(cache_4_1, [](const auto &tuple) INLINE {
+        //    const auto &[_friend, studyAt, uni, cache] = tuple;
+        //    return uni;
+        //}, txn, (label_t)snb::EdgeSchema::Org2Place);
+        auto expand_4_2 = Projection(cache_4_1, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, studyAt, uni, cache] = tuple;
-            return uni;
-        }, txn, (label_t)snb::EdgeSchema::Org2Place);
+            auto org = (snb::OrgSchema::Org*)txn.get_vertex(uni).data();
+            return std::make_tuple(_friend, studyAt, uni, cache, 0, org->place);
+        });
         auto cache_4_2 = CacheProperties(expand_4_2, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, studyAt, uni, cache, anon_333, uniCity] = tuple;
             auto place = (snb::PlaceSchema::Place*)txn.get_vertex(uniCity).data();
@@ -286,10 +296,15 @@ public:
             auto type = (snb::VertexSchema*)txn.get_vertex(company).data();
             return *type == snb::VertexSchema::Org;
         });
-        auto expand_5_2 = ExpandAll(filter_5_1, [](const auto &tuple) INLINE {
+        //auto expand_5_2 = ExpandAll(filter_5_1, [](const auto &tuple) INLINE {
+        //    const auto &[_friend, workAt, company] = tuple;
+        //    return company;
+        //}, txn, (label_t)snb::EdgeSchema::Org2Place);
+        auto expand_5_2 = Projection(filter_5_1, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, workAt, company] = tuple;
-            return company;
-        }, txn, (label_t)snb::EdgeSchema::Org2Place);
+            auto org = (snb::OrgSchema::Org*)txn.get_vertex(company).data();
+            return std::make_tuple(_friend, workAt, company, 0, org->place);
+        });
         auto filter_5_2 = Filter(expand_5_2, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, workAt, company, anon_573, companyCountry] = tuple;
             if(!enableSchemaCheck) return true;
@@ -585,14 +600,24 @@ public:
             const auto &[_friend] = tuple;
             return std::make_tuple(_friend);
         });
-        auto expand_a1_1 = ExpandAll(argument_a1_1, [](const auto &tuple) INLINE {
+        //auto expand_a1_1 = ExpandAll(argument_a1_1, [](const auto &tuple) INLINE {
+        //    const auto &[_friend] = tuple;
+        //    return _friend;
+        //}, txn, (label_t)snb::EdgeSchema::Person2Place);
+        //auto expand_a1_2 = ExpandAll(expand_a1_1, [](const auto &tuple) INLINE {
+        //    const auto &[_friend, anon_111, _place] = tuple;
+        //    return _place;
+        //}, txn, (label_t)snb::EdgeSchema::Place2Place_up);
+        auto expand_a1_1 = Projection(argument_a1_1, [&txn](const auto &tuple) INLINE {
             const auto &[_friend] = tuple;
-            return _friend;
-        }, txn, (label_t)snb::EdgeSchema::Person2Place);
-        auto expand_a1_2 = ExpandAll(expand_a1_1, [](const auto &tuple) INLINE {
+            auto person = (snb::PersonSchema::Person*)txn.get_vertex(_friend).data();
+            return std::make_tuple(_friend, 0, person->place);
+        });
+        auto expand_a1_2 = Projection(expand_a1_1, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, anon_111, _place] = tuple;
-            return _place;
-        }, txn, (label_t)snb::EdgeSchema::Place2Place_up);
+            auto place = (snb::PlaceSchema::Place*)txn.get_vertex(_place).data();
+            return std::make_tuple(_friend, anon_111, _place, 0, place->isPartOf);
+        });
         auto filter_a1_1 = Filter(expand_a1_2, [&txn, &request](const auto &tuple) INLINE {
             const auto &[_friend, anon_111, _place, anon_112, country] = tuple;
             auto place = (snb::PlaceSchema::Place*)txn.get_vertex(country).data();
@@ -651,10 +676,15 @@ public:
             return true;
             //return (int64_t)std::get<0>(cache) >= request.startDate && (int64_t)std::get<0>(cache) < endDate;
         });
-        auto expand_1_2 = ExpandAll(filter_1_2, [](const auto &tuple) INLINE {
+        //auto expand_1_2 = ExpandAll(filter_1_2, [](const auto &tuple) INLINE {
+        //    const auto &[_friend, anon_63, messageX, cache] = tuple;
+        //    return messageX;
+        //}, txn, (label_t)snb::EdgeSchema::Message2Place);
+        auto expand_1_2 = Projection(filter_1_2, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, anon_63, messageX, cache] = tuple;
-            return messageX;
-        }, txn, (label_t)snb::EdgeSchema::Message2Place);
+            auto message = (snb::MessageSchema::Message*)txn.get_vertex(messageX).data();
+            return std::make_tuple(_friend, anon_63, messageX, cache, 0, message->place);
+        });
         
         auto anon_filter_1_3 = Filter(expand_1_2, [&txn](const auto &tuple) INLINE {
             const auto &[_friend, anon_63, messageX, cache, anon_110, countryX] = tuple;
@@ -1072,10 +1102,15 @@ public:
             auto message = (snb::MessageSchema::Message*)txn.get_vertex(friendPost).data();
             return message->vtype == snb::VertexSchema::Message && message->type == snb::MessageSchema::Message::Type::Post;
         });
-        auto expand_2_2 = ExpandAll(filter_2_1, [](const auto &tuple) INLINE {
+        //auto expand_2_2 = ExpandAll(filter_2_1, [](const auto &tuple) INLINE {
+        //    const auto &[knownTag, anon_115, friendPost] = tuple;
+        //    return friendPost;
+        //}, txn, (label_t)snb::EdgeSchema::Message2Person_creator);
+        auto expand_2_2 = Projection(filter_2_1, [&txn](const auto &tuple) INLINE {
             const auto &[knownTag, anon_115, friendPost] = tuple;
-            return friendPost;
-        }, txn, (label_t)snb::EdgeSchema::Message2Person_creator);
+            auto message = (snb::MessageSchema::Message*)txn.get_vertex(friendPost).data();
+            return std::make_tuple(knownTag, anon_115, friendPost, 0, message->creator);
+        });
 
         auto hash_join = HashJoin(filter_1_1, expand_2_2, [](const auto &tuple) INLINE {
             const auto &[_person, anon_41, _friend] = tuple;
@@ -1303,10 +1338,15 @@ public:
             if(std::get<0>(x) < std::get<0>(y)) return false;
             return std::get<1>(x) < std::get<1>(y);
         });
-        auto expand_3 = ExpandAll(sort, [](const auto &tuple) INLINE {
+        //auto expand_3 = ExpandAll(sort, [](const auto &tuple) INLINE {
+        //    const auto &[start, anon_41, anon_58, anon_68, comment, cache, commentCreationDate, commentId] = tuple;
+        //    return comment;
+        //}, txn, (label_t)snb::EdgeSchema::Message2Person_creator);
+        auto expand_3 = Projection(sort, [&txn](const auto &tuple) INLINE {
             const auto &[start, anon_41, anon_58, anon_68, comment, cache, commentCreationDate, commentId] = tuple;
-            return comment;
-        }, txn, (label_t)snb::EdgeSchema::Message2Person_creator);
+            auto message = (snb::MessageSchema::Message*)txn.get_vertex(comment).data();
+            return std::make_tuple(start, anon_41, anon_58, anon_68, comment, cache, commentCreationDate, commentId, std::make_tuple(comment, message->creator, to_string<uint64_t>(message->creationDate)), message->creator);
+        });
         auto anon_filter_3 = Filter(expand_3, [&txn](const auto &tuple) INLINE {
             const auto &[start, anon_41, anon_58, anon_68, comment, cache, commentCreationDate, commentId, anon_99, _person] = tuple;
             if(!enableSchemaCheck) return true;
@@ -1465,10 +1505,15 @@ public:
         }, txn, (label_t)snb::EdgeSchema::Person2Person);
 
         auto anti_semi_apply_1 = AntiSemiApply(filter_1_1, expand_2_1);
-        auto expand_1_1 = ExpandAll(anti_semi_apply_1, [](const auto &tuple) INLINE {
+        //auto expand_1_1 = ExpandAll(anti_semi_apply_1, [](const auto &tuple) INLINE {
+        //    const auto &[_person, anon_41, _friend] = tuple;
+        //    return _friend;
+        //}, txn, (label_t)snb::EdgeSchema::Person2Place);
+        auto expand_1_1 = Projection(anti_semi_apply_1, [&txn](const auto &tuple) INLINE {
             const auto &[_person, anon_41, _friend] = tuple;
-            return _friend;
-        }, txn, (label_t)snb::EdgeSchema::Person2Place);
+            auto person = (snb::PersonSchema::Person*)txn.get_vertex(_friend).data();
+            return std::make_tuple(_person, anon_41, _friend, 0, person->place);
+        });
         auto filter_1_2 = Filter(expand_1_1, [&txn](const auto &tuple) INLINE {
             const auto &[_person, anon_41, _friend, anon_72, city] = tuple;
             if(!enableSchemaCheck) return true;
@@ -1848,12 +1893,18 @@ public:
             auto message = (snb::MessageSchema::Message*)txn.get_vertex(comment).data();
             return message->vtype == snb::VertexSchema::Message && message->type == snb::MessageSchema::Message::Type::Comment;
         });
-        auto expand_2_3 = ExpandAll(filter_2_2, [](const auto &tuple) INLINE {
+        //auto expand_2_3 = ExpandAll(filter_2_2, [](const auto &tuple) INLINE {
+        //    const auto &[anon_7, anon_36, _friend, cache, anon_61, comment] = tuple;
+        //    return comment;
+        //}, txn, (label_t)snb::EdgeSchema::Message2Message_up);
+        auto expand_2_3 = Projection(filter_2_2, [&txn](const auto &tuple) INLINE {
             const auto &[anon_7, anon_36, _friend, cache, anon_61, comment] = tuple;
-            return comment;
-        }, txn, (label_t)snb::EdgeSchema::Message2Message_up);
+            auto message = (snb::MessageSchema::Message*)txn.get_vertex(comment).data();
+            return std::make_tuple(anon_7, anon_36, _friend, cache, anon_61, comment, 0, message->replyOfPost);
+        });
         auto filter_2_3 = Filter(expand_2_3, [&txn](const auto &tuple) INLINE {
             const auto &[anon_7, anon_36, _friend, cache, anon_61, comment, anon_94, anon_108] = tuple;
+            if(anon_108 == (uint64_t)-1) return false;
             auto message = (snb::MessageSchema::Message*)txn.get_vertex(anon_108).data();
             return message->vtype == snb::VertexSchema::Message && message->type == snb::MessageSchema::Message::Type::Post;
         });
