@@ -253,9 +253,13 @@ public:
     template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
     {
         auto consume = [&](const auto &tuple) INLINE {
-            store.emplace(key_func(tuple), tuple);
-            if(store.size() > max_size)
-                store.erase(std::prev(store.end()));
+            auto key = key_func(tuple);
+            if(store.size() < max_size || compare_func(key, store.rbegin()->first))
+            {
+                store.emplace(key_func(tuple), tuple);
+                if(store.size() > max_size)
+                    store.erase(std::prev(store.end()));
+            }
         };
 
         auto plan = input.gen_plan(consume);
@@ -325,9 +329,12 @@ public:
             }
             else
             {
-                store.emplace(key_func(tuple), tuple);
-                if(store.size() > max_size)
-                    store.erase(std::prev(store.end()));
+                if(store.size() < max_size || compare_func(key, store.rbegin()->first))
+                {
+                    store.emplace(key_func(tuple), tuple);
+                    if(store.size() > max_size)
+                        store.erase(std::prev(store.end()));
+                }
             }
         };
 
@@ -728,6 +735,134 @@ public:
     }
 };
 
+template <typename LeftInputType, typename RightInputType, typename LeftKeyFuncType, typename RightKeyFuncType>
+class SortJoin
+{
+    LeftInputType &left;
+    RightInputType &right;
+    LeftKeyFuncType left_key_func;
+    RightKeyFuncType right_key_func;
+    using key_type = std::invoke_result_t<LeftKeyFuncType, typename LeftInputType::type>;
+    static_assert(std::is_same_v<std::invoke_result_t<RightKeyFuncType, typename RightInputType::type>, key_type>);
+    const bool ordered;
+    const bool unique;
+
+    std::vector<std::pair<key_type, typename LeftInputType::type>> store;
+    //std::unordered_map<key_type, typename LeftInputType::type, utils::hash<key_type>> store;
+
+public:
+    using type = utils::tuple_cat_t<typename LeftInputType::type, typename RightInputType::type>;
+
+    SortJoin(LeftInputType &_left, RightInputType &_right, const LeftKeyFuncType &_left_key_func, const RightKeyFuncType &_right_key_func, bool _ordered = false, bool _unique = false) 
+        :left(_left), right(_right), left_key_func(_left_key_func), right_key_func(_right_key_func), ordered(_ordered), unique(_unique), store()
+    {
+    }
+
+    template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto left_consume = [&](const auto &tuple) INLINE {
+            auto key = left_key_func(tuple);
+            store.emplace_back(key, tuple);
+        };
+        auto right_consume = [&, parent_consume](const auto &tuple) INLINE {
+            auto key = right_key_func(tuple);
+            auto begin = std::lower_bound(store.begin(), store.end(), key, [&](const auto &a, const auto &b) INLINE {
+                return a.first < b;
+            });
+            for(auto iter = begin; iter != store.end(); iter++)
+            {
+                if((*iter).first == key)
+                {
+                    parent_consume(std::tuple_cat((*iter).second, tuple));
+                }
+                else
+                {
+                    break;
+                }
+                if(unique) break;
+            }
+        };
+
+        auto left_plan = left.gen_plan(left_consume);
+        auto right_plan = right.gen_plan(right_consume);
+
+        return [&, left_plan, right_plan](const auto &... tuple) INLINE { 
+            left_plan(tuple...); 
+            if(!ordered) std::sort(store.begin(), store.end(), [&](const auto &a, const auto &b) INLINE {
+                return a.first < b.first;
+            });
+            right_plan(tuple...); 
+            store.clear();
+        };
+    }
+};
+
+template <typename LeftInputType, typename RightInputType, typename LeftKeyFuncType, typename RightKeyFuncType>
+class RightOuterSortJoin
+{
+    LeftInputType &left;
+    RightInputType &right;
+    LeftKeyFuncType left_key_func;
+    RightKeyFuncType right_key_func;
+    using key_type = std::invoke_result_t<LeftKeyFuncType, typename LeftInputType::type>;
+    static_assert(std::is_same_v<std::invoke_result_t<RightKeyFuncType, typename RightInputType::type>, key_type>);
+    const bool ordered;
+
+    std::vector<std::pair<key_type, typename LeftInputType::type>> store;
+    //std::unordered_map<key_type, typename LeftInputType::type, utils::hash<key_type>> store;
+
+public:
+    using type = utils::tuple_cat_t<typename LeftInputType::type, typename RightInputType::type>;
+
+    RightOuterSortJoin(LeftInputType &_left, RightInputType &_right, const LeftKeyFuncType &_left_key_func, const RightKeyFuncType &_right_key_func, bool _ordered = false) 
+        :left(_left), right(_right), left_key_func(_left_key_func), right_key_func(_right_key_func), ordered(_ordered), store()
+    {
+    }
+
+    template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
+    {
+        auto left_consume = [&](const auto &tuple) INLINE {
+            auto key = left_key_func(tuple);
+            store.emplace_back(key, tuple);
+        };
+        auto right_consume = [&, parent_consume](const auto &tuple) INLINE {
+            auto key = right_key_func(tuple);
+            auto begin = std::lower_bound(store.begin(), store.end(), key, [&](const auto &a, const auto &b) INLINE {
+                return a.first < b;
+            });
+            bool flag = false;
+            for(auto iter = begin; iter != store.end(); iter++)
+            {
+                if((*iter).first == key)
+                {
+                    flag = true;
+                    parent_consume(std::tuple_cat((*iter).second, tuple));
+                }
+                else
+                {
+                    break;
+                }
+            }
+            if(!flag)
+            {
+                parent_consume(std::tuple_cat(typename LeftInputType::type(), tuple));
+            }
+        };
+
+        auto left_plan = left.gen_plan(left_consume);
+        auto right_plan = right.gen_plan(right_consume);
+
+        return [&, left_plan, right_plan](const auto &... tuple) INLINE { 
+            left_plan(tuple...); 
+            if(!ordered) std::sort(store.begin(), store.end(), [&](const auto &a, const auto &b) INLINE {
+                return a.first < b.first;
+            });
+            right_plan(tuple...); 
+            store.clear();
+        };
+    }
+};
+
 template <typename InputType, typename CacheFuncType>
 class CacheProperties
 {
@@ -973,7 +1108,7 @@ class VarLengthExpandAll
 
 
 public:
-    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<path_type>, uint64_t>>;
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<uint64_t, uint64_t>>;
 
     VarLengthExpandAll(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_min_hops, const uint64_t &_max_hops)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes), min_hops(_min_hops), max_hops(_max_hops)
@@ -989,27 +1124,28 @@ public:
     {
         auto consume = [&, parent_consume](const auto &tuple) INLINE {
             auto src = select_func(tuple);
-            std::vector<path_type> path;
+            uint64_t path = 0;
+            //std::vector<path_type> path;
             auto dfs = [&](uint64_t src, uint64_t hops, const auto &dfs) -> void
             {
                 if(hops > max_hops) return;
-                path.emplace_back();
+                //path.emplace_back();
                 for(const auto &etype:etypes)
                 {
                     for(auto nbrs = txn.get_edges(src, etype);nbrs.valid();nbrs.next())
                     {
                         const auto cur_edge = std::make_tuple(src, nbrs.dst_id(), nbrs.edge_data());
-                        bool exist = false;
-                        for(size_t i=0;i<path.size()-1;i++)
-                        {
-                            if(path[i] == cur_edge)
-                            {
-                                exist = true;
-                                break;
-                            }
-                        }
-                        if(exist) continue;
-                        path.back() = cur_edge;
+                        //bool exist = false;
+                        //for(size_t i=0;i<path.size()-1;i++)
+                        //{
+                        //    if(path[i] == cur_edge)
+                        //    {
+                        //        exist = true;
+                        //        break;
+                        //    }
+                        //}
+                        //if(exist) continue;
+                        //path.back() = cur_edge;
                         if(hops >= min_hops && hops <= max_hops)
                         {
                             parent_consume(std::tuple_cat(tuple, std::make_tuple(path, nbrs.dst_id())));
@@ -1017,7 +1153,7 @@ public:
                         dfs(nbrs.dst_id(), hops+1, dfs);
                     }
                 }
-                path.pop_back();
+                //path.pop_back();
             };
             if(min_hops == 0)
             {
@@ -1043,13 +1179,14 @@ class VarLengthExpandPruning
     
     const uint64_t min_hops, max_hops;
 
-    std::unordered_set<uint64_t> store;
+    //std::unordered_set<uint64_t> store;
+    std::vector<uint64_t> store;
 
     static_assert(std::is_same_v<std::invoke_result_t<SelectFunc, typename InputType::type>, uint64_t>);
 
 
 public:
-    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<std::vector<path_type>, uint64_t>>;
+    using type = utils::tuple_cat_t<typename InputType::type, std::tuple<uint64_t, uint64_t>>;
 
     VarLengthExpandPruning(InputType &_input, const SelectFunc &_select_func, Transaction &_txn, const std::vector<label_t> &_etypes, const uint64_t &_min_hops, const uint64_t &_max_hops)
         : input(_input), select_func(_select_func), txn(_txn), etypes(_etypes), min_hops(_min_hops), max_hops(_max_hops), store()
@@ -1065,46 +1202,81 @@ public:
     {
         auto consume = [&, parent_consume](const auto &tuple) INLINE {
             auto src = select_func(tuple);
-            std::vector<path_type> path;
+            uint64_t path = 0;
+            //std::vector<path_type> path;
             auto dfs = [&](uint64_t src, uint64_t hops, const auto &dfs)
             {
                 if(hops > max_hops) return;
-                path.emplace_back();
+                //path.emplace_back();
                 for(const auto &etype:etypes)
                 {
                     for(auto nbrs = txn.get_edges(src, etype);nbrs.valid();nbrs.next())
                     {
                         const auto cur_edge = std::make_tuple(src, nbrs.dst_id(), nbrs.edge_data());
-                        bool exist = false;
-                        for(size_t i=0;i<path.size()-1;i++)
-                        {
-                            if(path[i] == cur_edge)
-                            {
-                                exist = true;
-                                break;
-                            }
-                        }
-                        if(exist) continue;
-                        path.back() = cur_edge;
+                        //bool exist = false;
+                        //for(size_t i=0;i<path.size()-1;i++)
+                        //{
+                        //    if(path[i] == cur_edge)
+                        //    {
+                        //        exist = true;
+                        //        break;
+                        //    }
+                        //}
+                        //if(exist) continue;
+                        //path.back() = cur_edge;
                         if(hops >= min_hops && hops <= max_hops)
                         {
-                            auto it = store.find(nbrs.dst_id());
-                            if(it == store.end())
-                            {
-                                parent_consume(std::tuple_cat(tuple, std::make_tuple(path, nbrs.dst_id())));
-                                store.emplace_hint(it, nbrs.dst_id());
-                            }
+                            store.emplace_back(nbrs.dst_id());
+                            //auto it = store.find(nbrs.dst_id());
+                            //if(it == store.end())
+                            //{
+                            //    parent_consume(std::tuple_cat(tuple, std::make_tuple(path, nbrs.dst_id())));
+                            //    store.emplace_hint(it, nbrs.dst_id());
+                            //}
                         }
                         dfs(nbrs.dst_id(), hops+1, dfs);
                     }
                 }
-                path.pop_back();
+                //path.pop_back();
             };
+            auto bfs = [&](uint64_t src, uint64_t hops) INLINE
+            {
+                std::vector<size_t> frontier = {src};
+                std::vector<size_t> next_frontier;
+                for (uint64_t k=1;k<=hops;k++)
+                {
+                    next_frontier.clear();
+                    for (auto vid : frontier)
+                    {
+                        for(const auto &etype:etypes)
+                        {
+                            auto nbrs = txn.get_edges(vid, etype);
+                            while (nbrs.valid())
+                            {
+                                next_frontier.push_back(nbrs.dst_id());
+                                if(k >= min_hops && k <= max_hops)
+                                {
+                                    store.emplace_back(nbrs.dst_id());
+                                }
+                                nbrs.next();
+                            }
+                        }
+                    }
+                    frontier.swap(next_frontier);
+                }
+            };
+            //bfs(src, max_hops);
             if(min_hops == 0)
             {
                 parent_consume(std::tuple_cat(tuple, std::make_tuple(path, src)));
             }
             dfs(src, 1, dfs);
+            std::sort(store.begin(), store.end());
+            auto last = std::unique(store.begin(), store.end());
+            for(auto iter=store.begin();iter!=last;iter++)
+            {
+                parent_consume(std::tuple_cat(tuple, std::make_tuple(path, *iter)));
+            }
         };
         auto plan = input.gen_plan(consume);
         return [&, plan](const auto &... tuple) INLINE { 
@@ -1686,15 +1858,19 @@ public:
     template <typename ParentConsumeType> INLINE auto gen_plan(const ParentConsumeType &parent_consume)
     {
         auto consume = [&](const auto &tuple) INLINE {
-            store.emplace(key_func(tuple), tuple);
-            auto begin = store.lower_bound(std::prev(store.end())->first);
-            uint64_t sum = 0;
-            for(auto it=begin;it!=store.end();++it) ++sum;
-            if(store.size() >= max_size+sum)
+            auto key = key_func(tuple);
+            if(store.size() < max_size || !compare_func(store.rbegin()->first, key))
             {
-                for(uint64_t i=0;i<sum;i++)
+                store.emplace(key_func(tuple), tuple);
+                auto begin = store.lower_bound(std::prev(store.end())->first);
+                uint64_t sum = 0;
+                for(auto it=begin;it!=store.end();++it) ++sum;
+                if(store.size() >= max_size+sum)
                 {
-                    store.erase(std::prev(store.end()));
+                    for(uint64_t i=0;i<sum;i++)
+                    {
+                        store.erase(std::prev(store.end()));
+                    }
                 }
             }
         };
