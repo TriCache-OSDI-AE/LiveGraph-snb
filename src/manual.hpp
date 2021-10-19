@@ -3,7 +3,6 @@
 #include "core/lg.hpp"
 #include "core/schema.hpp" 
 #include "core/util.hpp"
-#include "neo4j_op.hpp"
 #include <iostream>
 #include <unordered_set>
 
@@ -302,9 +301,9 @@ public:
                         {
                             if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
                             {
-                                value.personFirstName = std::string_view(person->firstName(), person->firstNameLen());
-                                value.personLastName = std::string_view(person->lastName(), person->lastNameLen());
-                                value.messageContent = message->contentLen()?std::string_view(message->content(), message->contentLen()):std::string_view(message->imageFile(), message->imageFileLen());
+                                value.personFirstName = std::string(person->firstName(), person->firstNameLen());
+                                value.personLastName = std::string(person->lastName(), person->lastNameLen());
+                                value.messageContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
                                 idx.emplace(key, value);
                                 while(idx.size() > (size_t)request.limit) idx.erase(idx.rbegin()->first);
                             }
@@ -318,7 +317,7 @@ public:
                 }
             }
         }
-        for(auto p : idx) _return.push_back(p.second);
+        for(auto p : idx) _return.emplace_back(p.second);
 //        std::cout << request.personId << " " << idx.size() << std::endl;
 
     }
@@ -691,11 +690,11 @@ public:
             uint64_t like_time = -p.first.first;
             auto message = (snb::MessageSchema::Message*)engine.get_vertex(message_vid).data();
             _return.back().personId = person->id;
-            _return.back().personFirstName = std::string_view(person->firstName(), person->firstNameLen());
-            _return.back().personLastName = std::string_view(person->lastName(), person->lastNameLen());
+            _return.back().personFirstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().personLastName = std::string(person->lastName(), person->lastNameLen());
             _return.back().likeCreationDate = like_time;
             _return.back().commentOrPostId = message->id;
-            _return.back().commentOrPostContent = message->contentLen()?std::string_view(message->content(), message->contentLen()):std::string_view(message->imageFile(), message->imageFileLen());
+            _return.back().commentOrPostContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
             _return.back().minutesLatency = (like_time-message->creationDate)/(60lu*1000lu);
             _return.back().isNew = (*std::lower_bound(friends.begin(), friends.end(), person_vid)) != person_vid;
         }
@@ -775,11 +774,11 @@ public:
             auto message = p.second;
             auto person = (snb::PersonSchema::Person*)engine.get_vertex(message->creator).data();
             _return.back().personId = person->id;
-            _return.back().personFirstName = std::string_view(person->firstName(), person->firstNameLen());
-            _return.back().personLastName = std::string_view(person->lastName(), person->lastNameLen());
+            _return.back().personFirstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().personLastName = std::string(person->lastName(), person->lastNameLen());
             _return.back().commentId = message->id;;
             _return.back().commentCreationDate = message->creationDate;
-            _return.back().commentContent = message->contentLen()?std::string_view(message->content(), message->contentLen()):std::string_view(message->imageFile(), message->imageFileLen());
+            _return.back().commentContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
         }
 //        std::cout << request.personId << " " << idx.size() << std::endl;
 
@@ -858,11 +857,11 @@ public:
             auto message = p.second;
             auto person = (snb::PersonSchema::Person*)engine.get_vertex(message->creator).data();
             _return.back().personId = person->id;
-            _return.back().personFirstName = std::string_view(person->firstName(), person->firstNameLen());
-            _return.back().personLastName = std::string_view(person->lastName(), person->lastNameLen());
+            _return.back().personFirstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().personLastName = std::string(person->lastName(), person->lastNameLen());
             _return.back().messageId = message->id;;
             _return.back().messageCreationDate = message->creationDate;
-            _return.back().messageContent = message->contentLen()?std::string_view(message->content(), message->contentLen()):std::string_view(message->imageFile(), message->imageFileLen());
+            _return.back().messageContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
         }
 //        std::cout << request.personId << " " << idx.size() << std::endl;
 
@@ -954,11 +953,11 @@ public:
             auto person = p.second;
             auto place = (snb::PlaceSchema::Place*)engine.get_vertex(person->place).data();
             _return.back().personId = person->id;
-            _return.back().personFirstName = std::string_view(person->firstName(), person->firstNameLen());
-            _return.back().personLastName = std::string_view(person->lastName(), person->lastNameLen());
+            _return.back().personFirstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().personLastName = std::string(person->lastName(), person->lastNameLen());
             _return.back().commonInterestSore = -p.first.first;
-            _return.back().personGender = std::string_view(person->gender(), person->genderLen());
-            _return.back().personCityName = std::string_view(place->name(), place->nameLen());
+            _return.back().personGender = std::string(person->gender(), person->genderLen());
+            _return.back().personCityName = std::string(place->name(), place->nameLen());
         }
 //        std::cout << request.personId << " " << idx.size() << std::endl;
     }

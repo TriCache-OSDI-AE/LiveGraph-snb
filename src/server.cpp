@@ -31,7 +31,7 @@
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TBufferTransports.h>
 
-#include "neo4j.hpp"
+#include "manual.hpp"
 
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::concurrency;
@@ -754,8 +754,10 @@ int main(int argc, char** argv)
     std::string graphPath = argv[1];
     std::string dataPath = argv[2];
     int port = std::stoi(argv[3]);
+    
+    size_t size = argc <= 3 ? 1lu << 40 : std::stoul(argv[4]);
 
-    graph = new Graph(graphPath+"/graph.mmap", graphPath+"/graph.wal", graphPath+"/graph.save");
+    graph = new Graph(graphPath+"/graph.mmap", graphPath+"/graph.wal", graphPath+"/graph.save", size);
 
     rocksdb::DB *rocksdb_db;
     rocksdb::Options options;
@@ -902,22 +904,22 @@ int main(int argc, char** argv)
         std::cout << "Finish loading" << std::endl;
     }
 
-    //const int workerCount = std::thread::hardware_concurrency();
-    //stdcxx::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
-    //threadManager->threadFactory(stdcxx::make_shared<PlatformThreadFactory>());
-    //threadManager->start();
-    //::server = new TThreadPoolServer(
-    //    stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
-    //    stdcxx::make_shared<TServerSocket>(port),
-    //    stdcxx::make_shared<TBufferedTransportFactory>(),
-    //    stdcxx::make_shared<TBinaryProtocolFactory>(),
-    //    threadManager);
-
-    ::server = new TThreadedServer(
+    const int workerCount = std::thread::hardware_concurrency();
+    stdcxx::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
+    threadManager->threadFactory(stdcxx::make_shared<PlatformThreadFactory>());
+    threadManager->start();
+    ::server = new TThreadPoolServer(
         stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
         stdcxx::make_shared<TServerSocket>(port),
         stdcxx::make_shared<TBufferedTransportFactory>(),
-        stdcxx::make_shared<TBinaryProtocolFactory>());
+        stdcxx::make_shared<TBinaryProtocolFactory>(),
+        threadManager);
+
+    // ::server = new TThreadedServer(
+    //     stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
+    //     stdcxx::make_shared<TServerSocket>(port),
+    //     stdcxx::make_shared<TBufferedTransportFactory>(),
+    //     stdcxx::make_shared<TBinaryProtocolFactory>());
 
     std::cout << "Starting the server..." << std::endl;
     ::server->serve();
