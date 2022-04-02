@@ -65,7 +65,7 @@ ExternalProject_Add(
                -DWITH_SNAPPY=OFF
                -DWITH_ZSTD=OFF
                -DFAIL_ON_WARNINGS=OFF
-               -DROCKSDB_BUILD_SHARED=OFF
+               -DROCKSDB_BUILD_SHARED=ON
                -DCMAKE_BUILD_TYPE=Release
 )
 
@@ -81,14 +81,15 @@ if(USE_SHARED_LIVEGRAPH)
 endif()
 add_subdirectory(${PROJECT_DEPS_DIR}/LiveGraph)
 
-add_executable(snb_server src/server.cpp ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
+aux_source_directory(src SOURCES)
+add_executable(snb_server ${SOURCES} ${THRIFT_GEN_PATH}/interactive_constants.cpp ${THRIFT_GEN_PATH}/Interactive.cpp ${THRIFT_GEN_PATH}/interactive_types.cpp)
 
 #remove deprecated warning
 target_compile_definitions(snb_server PRIVATE -DHAS_UNCAUGHT_EXCEPTIONS=1)
 
 if(USE_SHARED_LIVEGRAPH)
-    target_link_libraries(snb_server Threads::Threads OpenMP::OpenMP_CXX ${TBB_LIBRARIES} rocksdb.a thrift.a livegraph)
+    target_link_libraries(snb_server Threads::Threads OpenMP::OpenMP_CXX ${TBB_LIBRARIES} rocksdb thrift livegraph)
 else()
-    target_link_libraries(snb_server Threads::Threads OpenMP::OpenMP_CXX ${TBB_LIBRARIES} rocksdb.a thrift.a corelib)
+    target_link_libraries(snb_server Threads::Threads OpenMP::OpenMP_CXX ${TBB_LIBRARIES} rocksdb thrift corelib)
 endif()
 add_dependencies(snb_server rocksdblib)

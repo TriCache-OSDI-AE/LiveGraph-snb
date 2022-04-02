@@ -4,6 +4,3 @@
 [submodule "deps/rocksdb"]
 	path = deps/rocksdb
 	url = https://github.com/facebook/rocksdb.git
-[submodule "LiveGraph_new"]
-	path = deps/LiveGraph
-	url = git@github.com:jiguanglizipao/LiveGraph.git
