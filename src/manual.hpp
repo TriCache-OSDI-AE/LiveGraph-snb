@@ -1147,68 +1147,616 @@ public:
     void shortQuery1(ShortQuery1Response& _return, const ShortQuery1Request& request)
     {
         _return = ShortQuery1Response();
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto person = (snb::PersonSchema::Person*)engine.get_vertex(vid).data();
+        if(!person) return;
+        _return.firstName = std::string(person->firstName(), person->firstNameLen());
+        _return.lastName = std::string(person->lastName(), person->lastNameLen());
+        _return.birthday = to_time(person->birthday);
+        _return.locationIp = std::string(person->locationIP(), person->locationIPLen());
+        _return.browserUsed = std::string(person->browserUsed(), person->browserUsedLen());
+        auto place = (snb::PlaceSchema::Place*)engine.get_vertex(person->place).data();
+        _return.cityId = place->id;
+        _return.gender = std::string(person->gender(), person->genderLen());
+        _return.creationDate = person->creationDate;
     }
 
     void shortQuery2(std::vector<ShortQuery2Response> & _return, const ShortQuery2Request& request)
     {
         _return.clear();
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto person = (snb::PersonSchema::Person*)engine.get_vertex(vid).data();
+        if(!person) return;
+        
+        std::map<std::pair<int64_t, int64_t>, snb::MessageSchema::Message*> idx;
+        {
+            auto nbrs = engine.get_edges(vid, (label_t)snb::EdgeSchema::Person2Post_creator);
+            bool flag = true;
+            while (nbrs.valid() && flag)
+            {
+                int64_t date = *(uint64_t*)nbrs.edge_data().data();
+                auto message = (snb::MessageSchema::Message*)engine.get_vertex(nbrs.dst_id()).data();
+                auto key = std::make_pair(-date, -(int64_t)message->id);
+                auto value = message;
+                if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
+                {
+                    idx.emplace(key, value);
+                    while(idx.size() > (size_t)request.limit) idx.erase(idx.rbegin()->first);
+                }
+                else
+                {
+                    flag = idx.rbegin()->first.first > key.first;
+                }
+                nbrs.next();
+            }
+        }
+        {
+            auto nbrs = engine.get_edges(vid, (label_t)snb::EdgeSchema::Person2Comment_creator);
+            bool flag = true;
+            while (nbrs.valid() && flag)
+            {
+                int64_t date = *(uint64_t*)nbrs.edge_data().data();
+                auto message = (snb::MessageSchema::Message*)engine.get_vertex(nbrs.dst_id()).data();
+                auto key = std::make_pair(-date, -(int64_t)message->id);
+                auto value = message;
+                if(idx.size() < (size_t)request.limit || idx.rbegin()->first > key)
+                {
+                    idx.emplace(key, value);
+                    while(idx.size() > (size_t)request.limit) idx.erase(idx.rbegin()->first);
+                }
+                else
+                {
+                    flag = idx.rbegin()->first.first > key.first;
+                }
+                nbrs.next();
+            }
+        }
+        for(auto p : idx)
+        {
+            _return.emplace_back();
+            auto message = p.second;
+            _return.back().messageId = message->id;
+            _return.back().messageCreationDate = message->creationDate;
+            _return.back().messageContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
+            for(;message->replyOfComment != (uint64_t)-1;message = (snb::MessageSchema::Message*)engine.get_vertex(message->replyOfComment).data());
+            if(message->replyOfPost != (uint64_t)-1) message = (snb::MessageSchema::Message*)engine.get_vertex(message->replyOfPost).data();
+            auto person = (snb::PersonSchema::Person*)engine.get_vertex(message->creator).data();
+            _return.back().originalPostId = message->id;
+            _return.back().originalPostAuthorId = person->id;
+            _return.back().originalPostAuthorFirstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().originalPostAuthorLastName = std::string(person->lastName(), person->lastNameLen());
+        }
+
     }
 
     void shortQuery3(std::vector<ShortQuery3Response> & _return, const ShortQuery3Request& request)
     {
         _return.clear();
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto person = (snb::PersonSchema::Person*)engine.get_vertex(vid).data();
+        if(!person) return;
+        
+        std::vector<std::tuple<int64_t, uint64_t, snb::PersonSchema::Person*>> idx;
+
+        auto nbrs = engine.get_edges(vid, (label_t)snb::EdgeSchema::Person2Person);
+        while (nbrs.valid())
+        {
+            int64_t date = *(uint64_t*)nbrs.edge_data().data();
+            auto person = (snb::PersonSchema::Person*)engine.get_vertex(nbrs.dst_id()).data();
+            idx.emplace_back(-date, person->id, person);
+            nbrs.next();
+        }
+        std::sort(idx.begin(), idx.end());
+        for(auto p : idx)
+        {
+            _return.emplace_back();
+            auto person = std::get<2>(p);
+            _return.back().personId = person->id;
+            _return.back().firstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().lastName = std::string(person->lastName(), person->lastNameLen());
+            _return.back().friendshipCreationDate = -std::get<0>(p);
+        }
+
     }
 
     void shortQuery4(ShortQuery4Response& _return, const ShortQuery4Request& request)
     {
         _return = ShortQuery4Response();
+        uint64_t vid = postSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) vid = commentSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto message = (snb::MessageSchema::Message*)engine.get_vertex(vid).data();
+        if(!message) return;
+        _return.messageCreationDate = message->creationDate;
+        _return.messageContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
     }
 
     void shortQuery5(ShortQuery5Response& _return, const ShortQuery5Request& request)
     {
         _return = ShortQuery5Response();
+        uint64_t vid = postSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) vid = commentSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto message = (snb::MessageSchema::Message*)engine.get_vertex(vid).data();
+        if(!message) return;
+        auto person = (snb::PersonSchema::Person*)engine.get_vertex(message->creator).data();
+        _return.personId = person->id;
+        _return.firstName = std::string(person->firstName(), person->firstNameLen());
+        _return.lastName = std::string(person->lastName(), person->lastNameLen());
     }
 
     void shortQuery6(ShortQuery6Response& _return, const ShortQuery6Request& request)
     {
         _return = ShortQuery6Response();
+        uint64_t vid = postSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) vid = commentSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto message = (snb::MessageSchema::Message*)engine.get_vertex(vid).data();
+        if(!message) return;
+        for(;message->replyOfComment != (uint64_t)-1;message = (snb::MessageSchema::Message*)engine.get_vertex(message->replyOfComment).data());
+        if(message->replyOfPost != (uint64_t)-1) message = (snb::MessageSchema::Message*)engine.get_vertex(message->replyOfPost).data();
+        auto forum = (snb::ForumSchema::Forum*)engine.get_vertex(message->forumid).data();
+        if(!engine.get_vertex(vid).data()) return;
+        auto person = (snb::PersonSchema::Person*)engine.get_vertex(forum->moderator).data();
+        _return.forumId = forum->id;
+        _return.forumTitle = std::string(forum->title(), forum->titleLen());
+        _return.moderatorId = person->id;
+        _return.moderatorFirstName = std::string(person->firstName(), person->firstNameLen());
+        _return.moderatorLastName = std::string(person->lastName(), person->lastNameLen());
     }
 
     void shortQuery7(std::vector<ShortQuery7Response>& _return, const ShortQuery7Request& request)
     {
         _return.clear();
+        uint64_t vid = postSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) vid = commentSchema.findId(request.messageId);
+        if(vid == (uint64_t)-1) return;
+        auto engine = graph->begin_read_only_transaction();
+        auto message = (snb::MessageSchema::Message*)engine.get_vertex(vid).data();
+        if(!message) return;
+        auto person_vid = message->creator;
+
+        auto friends = multihop(engine, person_vid, 1, {(label_t)snb::EdgeSchema::Person2Person});
+        friends.push_back(std::numeric_limits<uint64_t>::max());
+        std::vector<std::tuple<int64_t, uint64_t, snb::MessageSchema::Message*, snb::PersonSchema::Person*>> idx;
+
+        auto nbrs = engine.get_edges(vid, (label_t)snb::EdgeSchema::Message2Message_down);
+        while (nbrs.valid())
+        {
+            auto message = (snb::MessageSchema::Message*)engine.get_vertex(nbrs.dst_id()).data();
+            auto person = (snb::PersonSchema::Person*)engine.get_vertex(message->creator).data();
+            idx.emplace_back(-(int64_t)message->creationDate, person->id, message, person);
+            nbrs.next();
+        }
+
+        for(auto p : idx)
+        {
+            _return.emplace_back();
+            auto message = std::get<2>(p);
+            auto person = std::get<3>(p);
+            _return.back().commentId = message->id;
+            _return.back().commentCreationDate = message->creationDate;
+            _return.back().commentContent = message->contentLen()?std::string(message->content(), message->contentLen()):std::string(message->imageFile(), message->imageFileLen());
+            _return.back().replyAuthorId = person->id;
+            _return.back().replyAuthorFirstName = std::string(person->firstName(), person->firstNameLen());
+            _return.back().replyAuthorLastName = std::string(person->lastName(), person->lastNameLen());
+            _return.back().replyAuthorKnowsOriginalMassageAuthor = (*std::lower_bound(friends.begin(), friends.end(), message->creator) == message->creator);
+        }
+
     }
 
     void update1(const interactive::Update1Request& request)
     {
+        uint64_t vid = personSchema.findId(request.personId);
+        if(vid != (uint64_t)-1) return;
+        uint64_t place_vid = placeSchema.findId(request.cityId);
+        auto birthday = std::chrono::system_clock::time_point(std::chrono::milliseconds(request.birthday));
+        auto person_buf = snb::PersonSchema::createPerson(request.personId, request.personFirstName, request.personLastName, request.gender,  
+                std::chrono::duration_cast<std::chrono::hours>(birthday.time_since_epoch()).count(), 
+                request.emails, request.languages, request.browserUsed, request.locationIp,
+                request.creationDate, place_vid);
+        std::vector<uint64_t> tag_vid, study_vid, work_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        for(auto org:request.studyAt_id) study_vid.emplace_back(orgSchema.findId(org));
+        for(auto org:request.workAt_id) work_vid.emplace_back(orgSchema.findId(org));
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.new_vertex();
+                    personSchema.insertId(request.personId, vid);
+                }
+                txn.put_vertex(vid, std::string_view(person_buf.data(), person_buf.size()));
+                txn.put_edge(place_vid, (label_t)snb::EdgeSchema::Place2Person, vid, {});
+                for(auto tag:tag_vid)
+                {
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Tag, tag, {});
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Person, vid, {});
+                }
+                for(size_t i=0;i<study_vid.size();i++)
+                {
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Org_study, study_vid[i], std::string_view((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])));
+                    txn.put_edge(study_vid[i], (label_t)snb::EdgeSchema::Org2Person_study, study_vid[i], std::string_view((char*)&request.studyAt_year[i], sizeof(request.studyAt_year[i])));
+                }
+                for(size_t i=0;i<work_vid.size();i++)
+                {
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Person2Org_work, work_vid[i], std::string_view((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])));
+                    txn.put_edge(work_vid[i], (label_t)snb::EdgeSchema::Org2Person_work, work_vid[i], std::string_view((char*)&request.workAt_year[i], sizeof(request.workAt_year[i])));
+                }
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
+
     }
 
     void update2(const Update2Request& request)
     {
+        uint64_t person_vid = personSchema.findId(request.personId);
+        uint64_t post_vid = postSchema.findId(request.postId);
+        if(person_vid == (uint64_t)-1) return;
+        if(post_vid == (uint64_t)-1) return;
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(person_vid).data()) return;
+            if(!txn.get_vertex(post_vid).data()) return;
+            try
+            {
+                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_like, post_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                txn.put_edge(post_vid, (label_t)snb::EdgeSchema::Post2Person_like, person_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
+
     }
 
     void update3(const Update3Request& request)
     {
+        uint64_t person_vid = personSchema.findId(request.personId);
+        uint64_t comment_vid = commentSchema.findId(request.commentId);
+        if(person_vid == (uint64_t)-1) return;
+        if(comment_vid == (uint64_t)-1) return;
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(person_vid).data()) return;
+            if(!txn.get_vertex(comment_vid).data()) return;
+            try
+            {
+                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_like, comment_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                txn.put_edge(comment_vid, (label_t)snb::EdgeSchema::Comment2Person_like, person_vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
     }
 
     void update4(const Update4Request& request)
     {
+        uint64_t vid = forumSchema.findId(request.forumId);
+        if(vid != (uint64_t)-1) return;
+        uint64_t moderator_vid = personSchema.findId(request.moderatorPersonId);
+        if(moderator_vid == (uint64_t)-1) return;
+        auto forum_buf = snb::ForumSchema::createForum(request.forumId, request.forumTitle, request.creationDate, moderator_vid);
+        std::vector<uint64_t> tag_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(moderator_vid).data()) return;
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.new_vertex();
+                    forumSchema.insertId(request.forumId, vid);
+                }
+                txn.put_vertex(vid, std::string_view(forum_buf.data(), forum_buf.size()));
+                txn.put_edge(moderator_vid, (label_t)snb::EdgeSchema::Person2Forum_moderator, vid, std::string_view());
+                for(auto tag:tag_vid)
+                {
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Forum2Tag, tag, std::string_view());
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Forum, vid, std::string_view());
+                }
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
     }
 
     void update5(const Update5Request& request)
     {
+        uint64_t person_vid = personSchema.findId(request.personId);
+        uint64_t forum_vid = forumSchema.findId(request.forumId);
+        if(person_vid == (uint64_t)-1) return;
+        if(forum_vid == (uint64_t)-1) return;
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(person_vid).data()) return;
+            if(!txn.get_vertex(forum_vid).data()) return;
+            try
+            {
+                auto nbrs = txn.get_edges(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator);
+                uint64_t posts = 0;
+                while (nbrs.valid())
+                {
+                    auto message = (snb::MessageSchema::Message*)txn.get_vertex(nbrs.dst_id()).data();
+                    if(message->forumid == forum_vid) posts++;
+                    nbrs.next();
+                }
+
+                snb::Buffer buf(sizeof(uint64_t)+sizeof(uint64_t));
+                *(uint64_t*)buf.data() = request.joinDate;
+                *(uint64_t*)(buf.data()+sizeof(uint64_t)) = posts;
+
+                txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Forum_member, forum_vid, std::string_view(buf.data(), buf.size()));
+                txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Person_member, person_vid, std::string_view(buf.data(), buf.size()));
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
     }
 
     void update6(const Update6Request& request)
     {
+        uint64_t vid = postSchema.findId(request.postId);
+        if(vid != (uint64_t)-1) return;
+        uint64_t person_vid = personSchema.findId(request.authorPersonId);
+        uint64_t forum_vid = forumSchema.findId(request.forumId);
+        uint64_t place_vid = placeSchema.findId(request.countryId);
+        if(person_vid == (uint64_t)-1) return;
+        if(forum_vid == (uint64_t)-1) return;
+        if(place_vid == (uint64_t)-1) return;
+        std::vector<uint64_t> tag_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        auto message_buf = snb::MessageSchema::createMessage(request.postId, request.imageFile, 
+                request.creationDate, request.locationIp, request.browserUsed, 
+                request.language, request.content, person_vid, forum_vid, place_vid, 
+                (uint64_t)-1, (uint64_t)-1, snb::MessageSchema::Message::Type::Post);
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(person_vid).data()) return;
+            if(!txn.get_vertex(forum_vid).data()) return;
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.new_vertex();
+                    postSchema.insertId(request.postId, vid);
+                }
+                txn.put_vertex(vid, std::string_view(message_buf.data(), message_buf.size()));
+
+                {
+                    std::vector<std::pair<uint64_t, uint64_t>> edges;
+                    auto nbrs = txn.get_edges(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator);
+                    while (nbrs.valid())
+                    {
+                        uint64_t date = *(uint64_t*)(nbrs.edge_data().data());
+                        if(date <= (uint64_t)request.creationDate) break;
+                        edges.emplace_back(nbrs.dst_id(), date);
+                        nbrs.next();
+                    }
+                    for(auto p:edges) txn.del_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, p.first);
+                    txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                    std::reverse(edges.begin(), edges.end());
+                    for(auto p:edges) txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Post_creator, p.first, std::string_view((char*)&p.second, sizeof(p.second)));
+                }
+
+                {
+                    auto bytes = txn.get_edge(person_vid, (label_t)snb::EdgeSchema::Person2Forum_member, forum_vid);
+                    if(bytes.data())
+                    {
+                        auto buf = std::string(bytes);
+                        *(uint64_t*)(buf.data()+sizeof(uint64_t)) += 1;
+                        txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Forum_member, forum_vid, std::string_view(buf.data(), buf.size()));
+                        txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Person_member, person_vid, std::string_view(buf.data(), buf.size()));
+                    }
+                }
+
+                txn.put_edge(forum_vid, (label_t)snb::EdgeSchema::Forum2Post, vid, std::string_view());
+
+                for(auto tag:tag_vid)
+                {
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Post2Tag, tag, std::string_view());
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Post, vid, std::string_view());
+                }
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
     }
 
     void update7(const Update7Request& request)
     {
+        uint64_t vid = commentSchema.findId(request.commentId);
+        if(vid != (uint64_t)-1) return;
+        uint64_t person_vid = personSchema.findId(request.authorPersonId);
+        uint64_t place_vid = placeSchema.findId(request.countryId);
+        uint64_t post_vid = postSchema.findId(request.replyToPostId);
+        uint64_t comment_vid = commentSchema.findId(request.replyToCommentId);
+        if(person_vid == (uint64_t)-1) return;
+        if(place_vid == (uint64_t)-1) return;
+        if(post_vid == (uint64_t)-1 && comment_vid == (uint64_t)-1) return;
+        uint64_t message_vid = (post_vid != (uint64_t)-1) ? post_vid : comment_vid;
+        std::vector<uint64_t> tag_vid;
+        for(auto tag:request.tagIds) tag_vid.emplace_back(tagSchema.findId(tag));
+        auto message_buf = snb::MessageSchema::createMessage(request.commentId, std::string(), 
+                request.creationDate, request.locationIp, request.browserUsed, 
+                std::string(), request.content, person_vid, (uint64_t)-1, place_vid, 
+                post_vid, comment_vid, snb::MessageSchema::Message::Type::Comment);
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(person_vid).data()) return;
+            if(!txn.get_vertex(message_vid).data()) return;
+            try
+            {
+                if(vid == (uint64_t)-1)
+                {
+                    vid = txn.new_vertex();
+                    commentSchema.insertId(request.commentId, vid);
+                }
+                txn.put_vertex(vid, std::string_view(message_buf.data(), message_buf.size()));
+
+                {
+                    std::vector<std::pair<uint64_t, uint64_t>> edges;
+                    auto nbrs = txn.get_edges(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator);
+                    while (nbrs.valid())
+                    {
+                        uint64_t date = *(uint64_t*)(nbrs.edge_data().data());
+                        if(date <= (uint64_t)request.creationDate) break;
+                        edges.emplace_back(nbrs.dst_id(), date);
+                        nbrs.next();
+                    }
+                    for(auto p:edges) txn.del_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, p.first);
+                    txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                    std::reverse(edges.begin(), edges.end());
+                    for(auto p:edges) txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Comment_creator, p.first, std::string_view((char*)&p.second, sizeof(p.second)));
+                }
+
+                {
+                    std::vector<std::pair<uint64_t, uint64_t>> edges;
+                    auto nbrs = txn.get_edges(message_vid, (label_t)snb::EdgeSchema::Message2Message_down);
+                    while (nbrs.valid())
+                    {
+                        uint64_t date = *(uint64_t*)(nbrs.edge_data().data());
+                        if(date <= (uint64_t)request.creationDate) break;
+                        edges.emplace_back(nbrs.dst_id(), date);
+                        nbrs.next();
+                    }
+                    for(auto p:edges) txn.del_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, p.first);
+                    txn.put_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, vid, std::string_view((char*)&request.creationDate, sizeof(request.creationDate)));
+                    std::reverse(edges.begin(), edges.end());
+                    for(auto p:edges) txn.put_edge(message_vid, (label_t)snb::EdgeSchema::Message2Message_down, p.first, std::string_view((char*)&p.second, sizeof(p.second)));
+                }
+
+                {
+                    auto friend_vid = ((snb::MessageSchema::Message*)txn.get_vertex(message_vid).data())->creator;
+                    auto bytes = txn.get_edge(person_vid, (label_t)snb::EdgeSchema::Person2Person, friend_vid);
+                    if(bytes.data())
+                    {
+                        auto buf = std::string(bytes);
+                        *(double*)(buf.data()+sizeof(uint64_t)) += (post_vid == message_vid)?1.0:0.5;
+                        txn.put_edge(person_vid, (label_t)snb::EdgeSchema::Person2Person, friend_vid, std::string_view(buf.data(), buf.size()));
+                        txn.put_edge(friend_vid, (label_t)snb::EdgeSchema::Person2Person, person_vid, std::string_view(buf.data(), buf.size()));
+                    }
+                }
+
+                for(auto tag:tag_vid)
+                {
+                    txn.put_edge(vid, (label_t)snb::EdgeSchema::Comment2Tag, tag, std::string_view());
+                    txn.put_edge(tag, (label_t)snb::EdgeSchema::Tag2Comment, vid, std::string_view());
+                }
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
+
     }
 
     void update8(const Update8Request& request)
     {
+        uint64_t left = personSchema.findId(request.person1Id);
+        uint64_t right = personSchema.findId(request.person2Id);
+        if(left == (uint64_t)-1) return;
+        if(right == (uint64_t)-1) return;
+        while(true)
+        {
+            auto txn = graph->begin_transaction();
+            if(!txn.get_vertex(left).data()) return;
+            if(!txn.get_vertex(right).data()) return;
+            try
+            {
+                double weight = 0;
+                {
+                    auto nbrs = txn.get_edges(left, (label_t)snb::EdgeSchema::Person2Comment_creator);
+                    while (nbrs.valid())
+                    {
+                        auto comment = (snb::MessageSchema::Message*)txn.get_vertex(nbrs.dst_id()).data();
+                        auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
+                        auto reply = (snb::MessageSchema::Message*)txn.get_vertex(rvid).data();
+                        if(reply->creator == right) weight += (rvid == comment->replyOfPost)?1.0:0.5;
+                        nbrs.next();
+                    }
+
+                }
+                {
+                    auto nbrs = txn.get_edges(right, (label_t)snb::EdgeSchema::Person2Comment_creator);
+                    while (nbrs.valid())
+                    {
+                        auto comment = (snb::MessageSchema::Message*)txn.get_vertex(nbrs.dst_id()).data();
+                        auto rvid = comment->replyOfPost==(uint64_t)-1?comment->replyOfComment:comment->replyOfPost;
+                        auto reply = (snb::MessageSchema::Message*)txn.get_vertex(rvid).data();
+                        if(reply->creator == left) weight += (rvid == comment->replyOfPost)?1.0:0.5;
+                        nbrs.next();
+                    }
+                }
+                snb::Buffer buf(sizeof(uint64_t)+sizeof(double));
+                *(uint64_t*)buf.data() = request.creationDate;
+                *(double*)(buf.data()+sizeof(uint64_t)) = weight;
+
+                txn.put_edge(left, (label_t)snb::EdgeSchema::Person2Person, right, std::string_view(buf.data(), buf.size()));
+                txn.put_edge(right, (label_t)snb::EdgeSchema::Person2Person, left, std::string_view(buf.data(), buf.size()));
+
+                auto epoch = txn.commit();
+                break;
+            } 
+            catch (typename decltype(txn)::RollbackExcept &e) 
+            {
+                txn.abort();
+            }
+        }
+
     }
 
 private:
