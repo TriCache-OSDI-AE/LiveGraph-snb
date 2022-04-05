@@ -33,7 +33,7 @@
 
 # CMake paths
 bin/
-build/
+build*/
 
 # YCM conf
 .ycm_extra_conf.py

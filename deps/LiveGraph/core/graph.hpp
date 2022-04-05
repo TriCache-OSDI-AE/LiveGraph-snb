@@ -40,7 +40,7 @@ namespace livegraph
               std::string wal_path = "",
               std::string _save_path = "",
               size_t _max_block_size = 1ul << 40,
-              vertex_t _max_vertex_id = 1ul << 40)
+              vertex_t _max_vertex_id = 1ul << 30)
             : save_path(_save_path),
               mutex(),
               epoch_id(0),
@@ -79,12 +79,32 @@ namespace livegraph
                     transaction_id = ((timestamp_t *)data)[1];
                     vertex_id = *((vertex_t *)(data + 2 * sizeof(timestamp_t)));
                     uintptr_t *base = (uintptr_t *)(data + 2 * sizeof(timestamp_t) + sizeof(vertex_t));
-#pragma omp parallel for
-                    for (vertex_t i = 0; i < vertex_id; i++)
+                    std::vector<std::thread> read_threads;
+                    size_t num_read_threads = 32;
+                    for(size_t i = 0; i < num_read_threads; i++)
                     {
-                        vertex_ptrs[i] = base[i * 2];
-                        edge_label_ptrs[i] = base[i * 2 + 1];
+                        read_threads.emplace_back([&, tid = i]()
+                                {
+                                    vertex_t per_threads = (vertex_id + num_read_threads - 1) / num_read_threads;
+                                    vertex_t begin = tid * per_threads;
+                                    vertex_t end = (tid + 1) * per_threads;
+                                    begin = std::min(vertex_id.load(), begin);
+                                    end = std::min(vertex_id.load(), end);
+                                    for(vertex_t j = begin; j < end; j++)
+                                    {
+                                        vertex_ptrs[j] = base[j * 2];
+                                        edge_label_ptrs[j] = base[j * 2 + 1];
+                                    }
+                                });
                     }
+                    for(auto &t : read_threads)
+                        t.join();
+                    // #pragma omp parallel for
+                    // for (vertex_t i = 0; i < vertex_id; i++)
+                    // {
+                    //     vertex_ptrs[i] = base[i * 2];
+                    //     edge_label_ptrs[i] = base[i * 2 + 1];
+                    // }
                     munmap(data, file_size);
                 }
                 close(fd);

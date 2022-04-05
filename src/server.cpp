@@ -24,7 +24,7 @@
 #include "Interactive.h"
 #include <thrift/transport/TSocket.h>
 #include <thrift/concurrency/ThreadManager.h>
-#include <thrift/concurrency/PlatformThreadFactory.h>
+#include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/server/TThreadPoolServer.h>
 #include <thrift/server/TThreadedServer.h>
@@ -728,7 +728,7 @@ public:
     virtual ~InteractiveCloneFactory() {}
     virtual InteractiveIf* getHandler(const ::apache::thrift::TConnectionInfo& connInfo)
     {
-        stdcxx::shared_ptr<TSocket> sock = stdcxx::dynamic_pointer_cast<TSocket>(connInfo.transport);
+        std::shared_ptr<TSocket> sock = std::dynamic_pointer_cast<TSocket>(connInfo.transport);
 //        std::cout << "new connection" << std::endl;
 //        std::cout << "Incoming connection\n";
 //        std::cout << "\tSocketInfo: "  << sock->getSocketInfo()  << "\n";
@@ -755,9 +755,9 @@ int main(int argc, char** argv)
     std::string dataPath = argv[2];
     int port = std::stoi(argv[3]);
     
-    size_t size = argc <= 3 ? 1lu << 40 : std::stoul(argv[4]);
+    size_t size = argc <= 4 ? (1lu << 40) : std::stoul(argv[4]);
 
-    graph = new Graph(graphPath+"/graph.mmap", graphPath+"/graph.wal", graphPath+"/graph.save", size);
+    graph = new Graph(graphPath+"/graph.mmap", "", graphPath+"/graph.save", size);
 
     rocksdb::DB *rocksdb_db;
     rocksdb::Options options;
@@ -904,23 +904,24 @@ int main(int argc, char** argv)
         std::cout << "Finish loading" << std::endl;
     }
 
-    const int workerCount = std::thread::hardware_concurrency();
-    stdcxx::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
-    threadManager->threadFactory(stdcxx::make_shared<PlatformThreadFactory>());
+    const int workerCount = std::stoi(std::getenv("LIVEGRAPH_NUM_CLIENTS"));
+    std::shared_ptr<ThreadManager> threadManager = ThreadManager::newSimpleThreadManager(workerCount);
+    threadManager->threadFactory(std::make_shared<ThreadFactory>());
     threadManager->start();
     ::server = new TThreadPoolServer(
-        stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
-        stdcxx::make_shared<TServerSocket>(port),
-        stdcxx::make_shared<TBufferedTransportFactory>(),
-        stdcxx::make_shared<TBinaryProtocolFactory>(),
+        std::make_shared<InteractiveProcessorFactory>(std::make_shared<InteractiveCloneFactory>()),
+        std::make_shared<TServerSocket>(port),
+        std::make_shared<TBufferedTransportFactory>(),
+        std::make_shared<TBinaryProtocolFactory>(),
         threadManager);
 
     // ::server = new TThreadedServer(
-    //     stdcxx::make_shared<InteractiveProcessorFactory>(stdcxx::make_shared<InteractiveCloneFactory>()),
-    //     stdcxx::make_shared<TServerSocket>(port),
-    //     stdcxx::make_shared<TBufferedTransportFactory>(),
-    //     stdcxx::make_shared<TBinaryProtocolFactory>());
+    //     std::make_shared<InteractiveProcessorFactory>(std::make_shared<InteractiveCloneFactory>()),
+    //     std::make_shared<TServerSocket>(port),
+    //     std::make_shared<TBufferedTransportFactory>(),
+    //     std::make_shared<TBinaryProtocolFactory>());
 
+    system("sudo killall -q -9 sleep");
     std::cout << "Starting the server..." << std::endl;
     ::server->serve();
     delete ::server;
